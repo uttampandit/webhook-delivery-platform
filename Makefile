@@ -1,7 +1,7 @@
 GO ?= go
 NPM ?= npm
 
-.PHONY: doctor build test test-race test-integration vet web-check up down
+.PHONY: doctor build test test-race test-integration vet web-check init-env seed up down
 
 doctor:
 	@sh ./scripts/doctor.sh
@@ -28,6 +28,16 @@ vet:
 
 web-check:
 	cd web && $(NPM) run typecheck && $(NPM) run build
+
+init-env:
+	sh ./scripts/init-env.sh
+
+seed:
+	@if [ ! -f .env ]; then \
+		printf '%s\n' 'Missing .env; run make init-env first.' >&2; \
+		exit 2; \
+	fi
+	@set -a; . ./.env; set +a; $(GO) run ./cmd/seed
 
 up:
 	docker compose up -d postgres
