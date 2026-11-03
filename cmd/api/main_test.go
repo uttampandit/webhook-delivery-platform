@@ -1,52 +1,44 @@
 package main
 
 import (
-	"net/http"
-	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/uttampandit/webhook-delivery-platform/internal/config"
 )
 
-func TestHealthLive(t *testing.T) {
-	handler := newHandler()
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/health/live", nil)
-
-	handler.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+func TestHTTPServerUsesBoundedTimeoutsAndModeBinding(t *testing.T) {
+	cases := []struct {
+		name    string
+		mode    string
+		address string
+	}{
+		{name: "host binds loopback", mode: "host", address: "127.0.0.1:8080"},
+		{name: "compose binds container port", mode: "compose", address: ":8080"},
 	}
-	if got := recorder.Body.String(); got != "ok\n" {
-		t.Fatalf("body = %q, want %q", got, "ok\n")
-	}
-	if got := recorder.Header().Get("Content-Type"); got != "text/plain; charset=utf-8" {
-		t.Fatalf("Content-Type = %q, want text/plain; charset=utf-8", got)
-	}
-}
-
-func TestHealthLiveRejectsOtherMethods(t *testing.T) {
-	handler := newHandler()
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/health/live", nil)
-
-	handler.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusMethodNotAllowed)
-	}
-	if got := recorder.Header().Get("Allow"); got != http.MethodGet {
-		t.Fatalf("Allow = %q, want %q", got, http.MethodGet)
-	}
-}
-
-func TestOnlyHealthLiveIsRegistered(t *testing.T) {
-	handler := newHandler()
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
-
-	handler.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNotFound)
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			settings, err := config.LoadFrom(config.ServiceAPI, func(key string) (string, bool) {
+				values := map[string]string{
+					"DATABASE_URL": "postgres://user:pass@127.0.0.1:5432/webhook_dev?sslmode=disable",
+					"RUN_MODE":     test.mode,
+					"API_TOKEN":    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+				}
+				value, ok := values[key]
+				return value, ok
+			})
+			if err != nil {
+				t.Fatal("load API settings:", err)
+			}
+			server := newHTTPServer(settings, nil)
+			if server.Addr != test.address {
+				t.Fatalf("server address = %q, want %q", server.Addr, test.address)
+			}
+			if server.ReadHeaderTimeout != 5*time.Second || server.ReadTimeout != 10*time.Second ||
+				server.WriteTimeout != 15*time.Second || server.IdleTimeout != 60*time.Second {
+				t.Fatalf("server timeouts = (%s, %s, %s, %s), want (5s, 10s, 15s, 60s)",
+					server.ReadHeaderTimeout, server.ReadTimeout, server.WriteTimeout, server.IdleTimeout)
+			}
+		})
 	}
 }

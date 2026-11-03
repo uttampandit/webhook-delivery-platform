@@ -9,12 +9,14 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/uttampandit/webhook-delivery-platform/internal/api"
+	"github.com/uttampandit/webhook-delivery-platform/internal/config"
+	"github.com/uttampandit/webhook-delivery-platform/internal/store"
 )
 
-const (
-	listenAddress  = ":8080"
-	shutdownPeriod = 5 * time.Second
-)
+const shutdownPeriod = 5 * time.Second
 
 func main() {
 	if err := run(); err != nil {
@@ -24,15 +26,25 @@ func main() {
 }
 
 func run() error {
-	server := &http.Server{
-		Addr:              listenAddress,
-		Handler:           newHandler(),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
+	settings, err := config.Load(config.ServiceAPI)
+	if err != nil {
+		return err
 	}
+	poolConfig, err := pgxpool.ParseConfig(settings.DatabaseURL())
+	if err != nil {
+		return errors.New("DATABASE_URL could not configure a PostgreSQL connection")
+	}
+	if poolConfig.ConnConfig.RuntimeParams == nil {
+		poolConfig.ConnConfig.RuntimeParams = make(map[string]string)
+	}
+	poolConfig.ConnConfig.RuntimeParams["statement_timeout"] = settings.DBStatementTimeout().String()
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
+	if err != nil {
+		return errors.New("could not create the PostgreSQL connection pool")
+	}
+	defer pool.Close()
 
+	server := newHTTPServer(settings, store.NewAPIReadRepository(pool))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -54,18 +66,17 @@ func run() error {
 	}
 }
 
-func newHandler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health/live", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", http.MethodGet)
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok\n"))
-	})
-	return mux
+func newHTTPServer(settings config.Settings, repository api.Repository) *http.Server {
+	address := ":8080"
+	if settings.RunMode() == config.RunModeHost {
+		address = "127.0.0.1:8080"
+	}
+	return &http.Server{
+		Addr:              address,
+		Handler:           api.NewHandler(settings, repository),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 }
