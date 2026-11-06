@@ -285,7 +285,7 @@ func TestEventAcceptanceRepositoryPostgreSQL(t *testing.T) {
 	t.Run("HTML-heavy Unicode remains bounded and unescaped", func(t *testing.T) {
 		content := strings.Repeat("<>&雪🙂", 5500)
 		raw := []byte(fmt.Sprintf(`{"type":"order.confirmed","payload":{"markup":"%s"},"destination_ids":["%s"]}`, content, destinations[0].ID))
-		if len(raw) >= maxEventRequestBytes {
+		if len(raw) >= MaxEventRequestBytes {
 			t.Fatalf("test request length=%d should be bounded below the raw limit", len(raw))
 		}
 		request, err := ValidateEventRequest(raw)

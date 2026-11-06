@@ -38,24 +38,27 @@ func TestValidateEventRequestRejectsInvalidJSONAndShape(t *testing.T) {
 	cases := []struct {
 		name string
 		body []byte
+		want error
 	}{
-		{name: "unknown top-level field", body: []byte(`{"type":"order.confirmed","payload":{},"destination_ids":["00000000-0000-4000-8000-000000000101"],"extra":true}`)},
-		{name: "duplicate top-level key", body: []byte(`{"type":"order.confirmed","\u0074ype":"other","payload":{},"destination_ids":["00000000-0000-4000-8000-000000000101"]}`)},
-		{name: "duplicate nested key", body: []byte(`{"type":"order.confirmed","payload":{"a":1,"a":2},"destination_ids":["00000000-0000-4000-8000-000000000101"]}`)},
-		{name: "trailing JSON", body: []byte(validEventRequestBody + ` {}`)},
-		{name: "invalid UTF-8", body: invalidUTF8},
-		{name: "null payload", body: []byte(`{"type":"order.confirmed","payload":null,"destination_ids":["00000000-0000-4000-8000-000000000101"]}`)},
-		{name: "array payload", body: []byte(`{"type":"order.confirmed","payload":[],"destination_ids":["00000000-0000-4000-8000-000000000101"]}`)},
-		{name: "invalid event type", body: []byte(`{"type":"Order.confirmed","payload":{},"destination_ids":["00000000-0000-4000-8000-000000000101"]}`)},
-		{name: "uppercase uuid", body: []byte(`{"type":"order.confirmed","payload":{},"destination_ids":["00000000-0000-4000-8000-00000000010A"]}`)},
-		{name: "duplicate destination", body: []byte(`{"type":"order.confirmed","payload":{},"destination_ids":["00000000-0000-4000-8000-000000000101","00000000-0000-4000-8000-000000000101"]}`)},
-		{name: "depth over limit", body: []byte(depth33)},
-		{name: "oversized raw body", body: bytes.Repeat([]byte(" "), maxEventRequestBytes+1)},
+		{name: "unknown top-level field", body: []byte(`{"type":"order.confirmed","payload":{},"destination_ids":["00000000-0000-4000-8000-000000000101"],"extra":true}`), want: ErrInvalidInput},
+		{name: "duplicate top-level key", body: []byte(`{"type":"order.confirmed","\u0074ype":"other","payload":{},"destination_ids":["00000000-0000-4000-8000-000000000101"]}`), want: ErrInvalidJSON},
+		{name: "duplicate nested key", body: []byte(`{"type":"order.confirmed","payload":{"a":1,"a":2},"destination_ids":["00000000-0000-4000-8000-000000000101"]}`), want: ErrInvalidJSON},
+		{name: "trailing JSON", body: []byte(validEventRequestBody + ` {}`), want: ErrInvalidJSON},
+		{name: "invalid UTF-8", body: invalidUTF8, want: ErrInvalidJSON},
+		{name: "malformed JSON", body: []byte(`{"type":`), want: ErrInvalidJSON},
+		{name: "empty body", body: nil, want: ErrInvalidJSON},
+		{name: "null payload", body: []byte(`{"type":"order.confirmed","payload":null,"destination_ids":["00000000-0000-4000-8000-000000000101"]}`), want: ErrInvalidInput},
+		{name: "array payload", body: []byte(`{"type":"order.confirmed","payload":[],"destination_ids":["00000000-0000-4000-8000-000000000101"]}`), want: ErrInvalidInput},
+		{name: "invalid event type", body: []byte(`{"type":"Order.confirmed","payload":{},"destination_ids":["00000000-0000-4000-8000-000000000101"]}`), want: ErrInvalidInput},
+		{name: "uppercase uuid", body: []byte(`{"type":"order.confirmed","payload":{},"destination_ids":["00000000-0000-4000-8000-00000000010A"]}`), want: ErrInvalidInput},
+		{name: "duplicate destination", body: []byte(`{"type":"order.confirmed","payload":{},"destination_ids":["00000000-0000-4000-8000-000000000101","00000000-0000-4000-8000-000000000101"]}`), want: ErrInvalidInput},
+		{name: "depth over limit", body: []byte(depth33), want: ErrInvalidJSON},
+		{name: "oversized raw body", body: bytes.Repeat([]byte(" "), MaxEventRequestBytes+1), want: ErrInvalidInput},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := ValidateEventRequest(test.body); !errors.Is(err, ErrInvalidInput) {
-				t.Fatalf("ValidateEventRequest error = %v, want ErrInvalidInput", err)
+			if _, err := ValidateEventRequest(test.body); !errors.Is(err, test.want) {
+				t.Fatalf("ValidateEventRequest error = %v, want %v", err, test.want)
 			}
 		})
 	}

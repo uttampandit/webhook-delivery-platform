@@ -20,13 +20,14 @@ import (
 )
 
 const (
-	maxEventRequestBytes = 65536
+	MaxEventRequestBytes = 65536
 	maxEventWireBytes    = 98304
 	maxEventJSONDepth    = 32
 )
 
 var (
 	ErrInvalidInput         = errors.New("invalid event input")
+	ErrInvalidJSON          = errors.New("invalid event JSON")
 	ErrUnknownDestination   = errors.New("unknown destination")
 	ErrIdempotencyConflict  = errors.New("idempotency key conflicts with a different request")
 	ErrStoreUnavailable     = errors.New("event store unavailable")
@@ -62,15 +63,25 @@ func ValidateIdempotencyKey(key string) error {
 // ValidateEventRequest parses the request without converting payload numbers
 // through float64, and rejects duplicate keys before decoding the top-level DTO.
 func ValidateEventRequest(raw []byte) (ValidatedEventRequest, error) {
-	if len(raw) == 0 || len(raw) > maxEventRequestBytes || !utf8.Valid(raw) {
+	if len(raw) == 0 || !utf8.Valid(raw) {
+		return ValidatedEventRequest{}, ErrInvalidJSON
+	}
+	if len(raw) > MaxEventRequestBytes {
 		return ValidatedEventRequest{}, ErrInvalidInput
 	}
 	if err := rejectDuplicateJSONKeys(raw); err != nil {
-		return ValidatedEventRequest{}, ErrInvalidInput
+		return ValidatedEventRequest{}, ErrInvalidJSON
 	}
 
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return ValidatedEventRequest{}, ErrInvalidInput
+	}
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil || len(fields) != 3 {
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return ValidatedEventRequest{}, ErrInvalidJSON
+	}
+	if fields == nil || len(fields) != 3 {
 		return ValidatedEventRequest{}, ErrInvalidInput
 	}
 	for name := range fields {
@@ -117,6 +128,12 @@ func ValidateEventRequest(raw []byte) (ValidatedEventRequest, error) {
 	}, nil
 }
 
+// DestinationIDs returns a copy of the selected UUIDs for tenant-registry
+// authorization at the API boundary.
+func (request ValidatedEventRequest) DestinationIDs() []string {
+	return append([]string(nil), request.destinationIDs...)
+}
+
 // AcceptedEvent is the stable acceptance result returned for both new and
 // duplicate requests. Delivery IDs are ordered by destination UUID.
 type AcceptedEvent struct {
@@ -142,7 +159,7 @@ func (repository *EventRepository) AcceptEvent(ctx context.Context, tenantID, ke
 	if repository == nil || repository.pool == nil {
 		return AcceptedEvent{}, ErrStoreUnavailable
 	}
-	if !request.valid || len(request.rawBody) == 0 || len(request.rawBody) > maxEventRequestBytes ||
+	if !request.valid || len(request.rawBody) == 0 || len(request.rawBody) > MaxEventRequestBytes ||
 		!isCanonicalUUID(tenantID) || ValidateIdempotencyKey(key) != nil {
 		return AcceptedEvent{}, ErrInvalidInput
 	}

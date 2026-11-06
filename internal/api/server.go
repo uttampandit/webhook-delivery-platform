@@ -18,6 +18,7 @@ type Repository interface {
 	Ping(context.Context) error
 	CheckReadiness(context.Context, config.Registry) error
 	ListDestinations(context.Context, string) ([]store.DestinationSummary, error)
+	AcceptEvent(context.Context, string, string, store.ValidatedEventRequest) (store.AcceptedEvent, error)
 }
 
 type Server struct {
@@ -55,6 +56,14 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		r = principalForRequest(r, server.registry.Tenant().ID)
+		if r.URL.Path == "/v1/events" {
+			if r.Method != http.MethodPost {
+				methodNotAllowed(w, http.MethodPost)
+				return
+			}
+			server.createEvent(w, r)
+			return
+		}
 		if r.URL.Path != "/v1/destinations" {
 			writeError(w, r, codeNotFound)
 			return

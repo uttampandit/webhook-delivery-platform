@@ -23,9 +23,16 @@ type testRepository struct {
 	readinessError error
 	listError      error
 	destinations   []store.DestinationSummary
+	acceptError    error
+	acceptedEvent  store.AcceptedEvent
 	listedTenantID string
 	listedActor    string
 	listCalls      int
+	acceptTenantID string
+	acceptKey      string
+	acceptActor    string
+	acceptCalls    int
+	acceptDeadline bool
 }
 
 func (repository *testRepository) Ping(context.Context) error { return repository.pingError }
@@ -41,6 +48,17 @@ func (repository *testRepository) ListDestinations(ctx context.Context, tenantID
 		repository.listedActor = principal.Actor
 	}
 	return repository.destinations, repository.listError
+}
+
+func (repository *testRepository) AcceptEvent(ctx context.Context, tenantID, key string, _ store.ValidatedEventRequest) (store.AcceptedEvent, error) {
+	repository.acceptCalls++
+	repository.acceptTenantID = tenantID
+	repository.acceptKey = key
+	_, repository.acceptDeadline = ctx.Deadline()
+	if principal, ok := PrincipalFromContext(ctx); ok {
+		repository.acceptActor = principal.Actor
+	}
+	return repository.acceptedEvent, repository.acceptError
 }
 
 func TestBearerAuthenticationAndRequestIDEnvelope(t *testing.T) {
@@ -196,8 +214,8 @@ func TestV1FallbackIsAuthenticatedAndMethodsSetAllow(t *testing.T) {
 		t.Fatalf("unknown unauthenticated /v1 route status = %d, want 401", unauthorized.Code)
 	}
 	missing := serve(handler, http.MethodGet, "/v1/events", "Bearer "+testAPIToken)
-	if missing.Code != http.StatusNotFound {
-		t.Fatalf("unimplemented authenticated route status = %d, want 404", missing.Code)
+	if missing.Code != http.StatusMethodNotAllowed || missing.Header().Get("Allow") != http.MethodPost {
+		t.Fatalf("GET /v1/events response = %d Allow=%q, want 405 Allow: POST", missing.Code, missing.Header().Get("Allow"))
 	}
 
 	for _, path := range []string{"/health/live", "/v1/destinations"} {

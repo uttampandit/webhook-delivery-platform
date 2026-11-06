@@ -14,14 +14,23 @@ type DestinationSummary struct {
 	Code string
 }
 
-// APIReadRepository contains the bounded read operations required by the API
-// health and fixed-destination endpoints.
+// APIReadRepository contains the bounded database operations required by the
+// API health, fixed-destination, and event-acceptance endpoints.
 type APIReadRepository struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	events *EventRepository
 }
 
 func NewAPIReadRepository(pool *pgxpool.Pool) *APIReadRepository {
-	return &APIReadRepository{pool: pool}
+	return &APIReadRepository{pool: pool, events: NewEventRepository(pool)}
+}
+
+// AcceptEvent delegates bounded API writes to the atomic event repository.
+func (repository *APIReadRepository) AcceptEvent(ctx context.Context, tenantID, key string, request ValidatedEventRequest) (AcceptedEvent, error) {
+	if repository == nil || repository.events == nil {
+		return AcceptedEvent{}, ErrStoreUnavailable
+	}
+	return repository.events.AcceptEvent(ctx, tenantID, key, request)
 }
 
 func (repository *APIReadRepository) Ping(ctx context.Context) error {
