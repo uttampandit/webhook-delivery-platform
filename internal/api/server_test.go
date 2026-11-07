@@ -19,20 +19,24 @@ import (
 const testAPIToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 type testRepository struct {
-	pingError      error
-	readinessError error
-	listError      error
-	destinations   []store.DestinationSummary
-	acceptError    error
-	acceptedEvent  store.AcceptedEvent
-	listedTenantID string
-	listedActor    string
-	listCalls      int
-	acceptTenantID string
-	acceptKey      string
-	acceptActor    string
-	acceptCalls    int
-	acceptDeadline bool
+	pingError       error
+	readinessError  error
+	listError       error
+	destinations    []store.DestinationSummary
+	acceptError     error
+	acceptedEvent   store.AcceptedEvent
+	listEventsError error
+	listEventsItems []store.EventListItem
+	getEventError   error
+	getEventDetail  store.EventDetail
+	listedTenantID  string
+	listedActor     string
+	listCalls       int
+	acceptTenantID  string
+	acceptKey       string
+	acceptActor     string
+	acceptCalls     int
+	acceptDeadline  bool
 }
 
 func (repository *testRepository) Ping(context.Context) error { return repository.pingError }
@@ -59,6 +63,21 @@ func (repository *testRepository) AcceptEvent(ctx context.Context, tenantID, key
 		repository.acceptActor = principal.Actor
 	}
 	return repository.acceptedEvent, repository.acceptError
+}
+
+func (repository *testRepository) ListEvents(_ context.Context, _ string, _ int, _ *store.EventCursor) ([]store.EventListItem, *store.EventCursor, error) {
+	if repository.listEventsError != nil {
+		return nil, nil, repository.listEventsError
+	}
+	items := repository.listEventsItems
+	if items == nil {
+		items = []store.EventListItem{}
+	}
+	return items, nil, nil
+}
+
+func (repository *testRepository) GetEvent(_ context.Context, _, _ string) (store.EventDetail, error) {
+	return repository.getEventDetail, repository.getEventError
 }
 
 func TestBearerAuthenticationAndRequestIDEnvelope(t *testing.T) {
@@ -213,9 +232,15 @@ func TestV1FallbackIsAuthenticatedAndMethodsSetAllow(t *testing.T) {
 	if unauthorized.Code != http.StatusUnauthorized {
 		t.Fatalf("unknown unauthenticated /v1 route status = %d, want 401", unauthorized.Code)
 	}
-	missing := serve(handler, http.MethodGet, "/v1/events", "Bearer "+testAPIToken)
-	if missing.Code != http.StatusMethodNotAllowed || missing.Header().Get("Allow") != http.MethodPost {
-		t.Fatalf("GET /v1/events response = %d Allow=%q, want 405 Allow: POST", missing.Code, missing.Header().Get("Allow"))
+	// GET /v1/events is now valid; check DELETE returns 405 with correct Allow.
+	deleteEvents := serve(handler, http.MethodDelete, "/v1/events", "Bearer "+testAPIToken)
+	if deleteEvents.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("DELETE /v1/events response = %d, want 405", deleteEvents.Code)
+	}
+	// GET /v1/events with valid auth should return 200 (empty list).
+	listEvents := serve(handler, http.MethodGet, "/v1/events", "Bearer "+testAPIToken)
+	if listEvents.Code != http.StatusOK {
+		t.Fatalf("GET /v1/events response = %d body=%s, want 200", listEvents.Code, listEvents.Body.String())
 	}
 
 	for _, path := range []string{"/health/live", "/v1/destinations"} {

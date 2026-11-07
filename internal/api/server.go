@@ -19,6 +19,8 @@ type Repository interface {
 	CheckReadiness(context.Context, config.Registry) error
 	ListDestinations(context.Context, string) ([]store.DestinationSummary, error)
 	AcceptEvent(context.Context, string, string, store.ValidatedEventRequest) (store.AcceptedEvent, error)
+	ListEvents(context.Context, string, int, *store.EventCursor) ([]store.EventListItem, *store.EventCursor, error)
+	GetEvent(context.Context, string, string) (store.EventDetail, error)
 }
 
 type Server struct {
@@ -57,11 +59,28 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		r = principalForRequest(r, server.registry.Tenant().ID)
 		if r.URL.Path == "/v1/events" {
-			if r.Method != http.MethodPost {
-				methodNotAllowed(w, http.MethodPost)
+			switch r.Method {
+			case http.MethodPost:
+				server.createEvent(w, r)
+			case http.MethodGet:
+				server.listEvents(w, r)
+			default:
+				methodNotAllowed(w, http.MethodGet+", "+http.MethodPost)
+			}
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/v1/events/") {
+			eventID := strings.TrimPrefix(r.URL.Path, "/v1/events/")
+			// Reject any further path segments (e.g. /v1/events/id/something).
+			if strings.ContainsRune(eventID, '/') {
+				writeError(w, r, codeNotFound)
 				return
 			}
-			server.createEvent(w, r)
+			if r.Method != http.MethodGet {
+				methodNotAllowed(w, http.MethodGet)
+				return
+			}
+			server.getEvent(w, r)
 			return
 		}
 		if r.URL.Path != "/v1/destinations" {

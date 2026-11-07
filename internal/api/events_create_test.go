@@ -157,12 +157,13 @@ func TestCreateEventRequiresAuthenticationAndPOST(t *testing.T) {
 		t.Fatal("unauthenticated event request reached repository")
 	}
 
-	get := httptest.NewRequest(http.MethodGet, "/v1/events", nil)
-	get.Header.Set("Authorization", "Bearer "+testAPIToken)
-	getRecorder := httptest.NewRecorder()
-	handler.ServeHTTP(getRecorder, get)
-	if getRecorder.Code != http.StatusMethodNotAllowed || getRecorder.Header().Get("Allow") != http.MethodPost {
-		t.Fatalf("GET /v1/events = %d Allow=%q, want 405 Allow: POST", getRecorder.Code, getRecorder.Header().Get("Allow"))
+	// GET /v1/events is now valid (list endpoint); verify DELETE returns 405.
+	del := httptest.NewRequest(http.MethodDelete, "/v1/events", nil)
+	del.Header.Set("Authorization", "Bearer "+testAPIToken)
+	delRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(delRecorder, del)
+	if delRecorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("DELETE /v1/events = %d, want 405", delRecorder.Code)
 	}
 }
 

@@ -15,14 +15,19 @@ type DestinationSummary struct {
 }
 
 // APIReadRepository contains the bounded database operations required by the
-// API health, fixed-destination, and event-acceptance endpoints.
+// API health, fixed-destination, event-acceptance, and event-query endpoints.
 type APIReadRepository struct {
-	pool   *pgxpool.Pool
-	events *EventRepository
+	pool    *pgxpool.Pool
+	events  *EventRepository
+	queries *QueryRepository
 }
 
 func NewAPIReadRepository(pool *pgxpool.Pool) *APIReadRepository {
-	return &APIReadRepository{pool: pool, events: NewEventRepository(pool)}
+	return &APIReadRepository{
+		pool:    pool,
+		events:  NewEventRepository(pool),
+		queries: NewQueryRepository(pool),
+	}
 }
 
 // AcceptEvent delegates bounded API writes to the atomic event repository.
@@ -31,6 +36,22 @@ func (repository *APIReadRepository) AcceptEvent(ctx context.Context, tenantID, 
 		return AcceptedEvent{}, ErrStoreUnavailable
 	}
 	return repository.events.AcceptEvent(ctx, tenantID, key, request)
+}
+
+// ListEvents delegates tenant-scoped event list queries to the QueryRepository.
+func (repository *APIReadRepository) ListEvents(ctx context.Context, tenantID string, limit int, cursor *EventCursor) ([]EventListItem, *EventCursor, error) {
+	if repository == nil || repository.queries == nil {
+		return nil, nil, ErrStoreUnavailable
+	}
+	return repository.queries.ListEvents(ctx, tenantID, limit, cursor)
+}
+
+// GetEvent delegates tenant-scoped event detail queries to the QueryRepository.
+func (repository *APIReadRepository) GetEvent(ctx context.Context, tenantID, eventID string) (EventDetail, error) {
+	if repository == nil || repository.queries == nil {
+		return EventDetail{}, ErrStoreUnavailable
+	}
+	return repository.queries.GetEvent(ctx, tenantID, eventID)
 }
 
 func (repository *APIReadRepository) Ping(ctx context.Context) error {
