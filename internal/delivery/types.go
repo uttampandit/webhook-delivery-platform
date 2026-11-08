@@ -22,3 +22,30 @@ type ClaimedDelivery struct {
 	KeyRefSnapshot string
 	WireBody       []byte
 }
+
+type Outcome string
+
+const (
+	Acknowledged Outcome = "acknowledged"
+	HTTPFailure  Outcome = "http_failure"
+	Unconfirmed  Outcome = "unconfirmed"
+	LocalFailure Outcome = "local_failure"
+)
+
+// SendResult carries bounded protocol observations, never response body text.
+// A nil HTTPStatus means no valid status was received. Duration is monotonic
+// elapsed time measured by the sender; RetryAfter preserves separate values.
+type SendResult struct {
+	Outcome    Outcome
+	HTTPStatus *int
+	ErrorCode  string
+	Duration   time.Duration
+	RetryAfter []string
+}
+
+type FinalizationResult struct {
+	Status         string
+	TerminalReason string
+	RetryDelay     time.Duration
+	NextAttemptAt  *time.Time
+}
