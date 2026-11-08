@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/uttampandit/webhook-delivery-platform/internal/api"
 	"github.com/uttampandit/webhook-delivery-platform/internal/config"
+	"github.com/uttampandit/webhook-delivery-platform/internal/delivery"
 	"github.com/uttampandit/webhook-delivery-platform/internal/receiver"
 	"github.com/uttampandit/webhook-delivery-platform/internal/signing"
 	"github.com/uttampandit/webhook-delivery-platform/internal/store"
@@ -72,7 +73,7 @@ func fixtureRegistry(t *testing.T, ctx context.Context, pool *pgxpool.Pool, fulf
 		t.Fatal(err)
 	}
 }
-func startWorker(t *testing.T, ctx context.Context, db *testutil.Database) func() {
+func startWorker(t *testing.T, ctx context.Context, db *testutil.Database, concurrency ...string) func() {
 	t.Helper()
 	executable, err := os.Executable()
 	if err != nil {
@@ -88,6 +89,9 @@ func startWorker(t *testing.T, ctx context.Context, db *testutil.Database) func(
 	query.Del("dbname")
 	target.RawQuery = query.Encode()
 	overrides := map[string]string{"WEBHOOK_WORKER_TEST_PROCESS": "1", "DATABASE_URL": target.String(), "RUN_MODE": "host", "FULFILLMENT_SIGNING_KEY_V1": testSecret, "NOTIFICATION_SIGNING_KEY_V1": testSecret, "WORKER_CONCURRENCY": "4", "WORKER_POLL_INTERVAL": "20ms"}
+	if len(concurrency) > 0 {
+		overrides["WORKER_CONCURRENCY"] = concurrency[0]
+	}
 	cmd := exec.CommandContext(ctx, executable, "-test.run=^TestWorkerHelper$")
 	for _, entry := range os.Environ() {
 		name, _, _ := strings.Cut(entry, "=")
@@ -311,5 +315,64 @@ func TestWorkerSIGTERMCancelsAndPersistsAttempt(t *testing.T) {
 	}
 	if outcome != "unconfirmed" || code != "canceled" || !finished || status != "pending" {
 		t.Fatal("canceled attempt not safely persisted", outcome, code, status)
+	}
+}
+
+func TestWorkerReapsWithAllSlotsBusy(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	t.Cleanup(cancel)
+	db := workerDB(t, ctx)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		once.Do(func() { close(started) })
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	defer server.Close()
+	defer close(release)
+	fixtureRegistry(t, ctx, db.Pool, server.URL, server.URL)
+	ingestWorkerEvent(t, ctx, db.Pool, []string{config.FulfillmentDestination, config.NotificationDestination})
+	if _, e := db.Pool.Exec(ctx, `UPDATE deliveries SET next_attempt_at=clock_timestamp()+interval '1 hour' WHERE destination_id=$1`, config.NotificationDestination); e != nil {
+		t.Fatal(e)
+	}
+	claims, e := store.NewClaimRepository(db.Pool, 30*time.Second, time.Second)
+	if e != nil {
+		t.Fatal(e)
+	}
+	abandoned, e := claims.ClaimDue(ctx, 1)
+	if e != nil || len(abandoned) != 1 {
+		t.Fatal(e)
+	}
+	// This repository fixture models an abandoned committed claim; actual SIGKILL
+	// synchronization remains Task 19. No attempt or counter is erased.
+	if _, e = db.Pool.Exec(ctx, `UPDATE deliveries SET lease_until=clock_timestamp() WHERE id=$1`, abandoned[0].DeliveryID); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = db.Pool.Exec(ctx, `UPDATE deliveries SET next_attempt_at=clock_timestamp() WHERE destination_id=$1`, config.NotificationDestination); e != nil {
+		t.Fatal(e)
+	}
+	stop := startWorker(t, ctx, db, "1")
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("sender not busy")
+	}
+	awaitWorker(t, ctx, func() bool {
+		var recovered bool
+		if e := db.Pool.QueryRow(ctx, `SELECT a.outcome='unconfirmed' AND a.error_code='lease_expired' AND EXISTS(SELECT 1 FROM deliveries WHERE destination_id=$2 AND status='in_flight') FROM attempts a WHERE a.id=$1`, abandoned[0].AttemptID, config.NotificationDestination).Scan(&recovered); e != nil {
+			t.Fatal(e)
+		}
+		return recovered
+	})
+	stop()
+	finalizer, _ := store.NewFinalizationRepository(db.Pool, time.Second, delivery.Policy{})
+	code := 204
+	if _, e = finalizer.Finalize(ctx, abandoned[0], delivery.SendResult{Outcome: delivery.Acknowledged, HTTPStatus: &code}); e != store.ErrStaleClaim {
+		t.Fatal(e)
 	}
 }

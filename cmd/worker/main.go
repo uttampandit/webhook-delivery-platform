@@ -56,5 +56,14 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return worker.Run(ctx)
+	recovery, err := store.NewRecoveryRepository(pool, settings.DBStatementTimeout(), delivery.Policy{})
+	if err != nil {
+		return err
+	}
+	reaperDone := make(chan struct{})
+	go func() { defer close(reaperDone); delivery.RunReaper(ctx, recovery, settings.DBStatementTimeout()) }()
+	err = worker.Run(ctx)
+	stop()
+	<-reaperDone
+	return err
 }
