@@ -174,3 +174,38 @@ func mapLookup(values map[string]string) func(string) (string, bool) {
 		return value, ok
 	}
 }
+
+func TestSigningKeyLookupIsolationAndCopies(t *testing.T) {
+	for _, code := range []string{"fulfillment", "notification"} {
+		values := validEnvironment()
+		values["RECEIVER_CODE"] = code
+		settings, err := LoadFrom(ServiceReceiver, mapLookup(values))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ref, other := FulfillmentKeyRef, NotificationKeyRef
+		if code == "notification" {
+			ref, other = other, ref
+		}
+		key, ok := settings.SigningKey(ref)
+		if !ok || len(key) != 32 {
+			t.Fatal("missing receiver key")
+		}
+		key[0] ^= 0xff
+		again, _ := settings.SigningKey(ref)
+		if key[0] == again[0] {
+			t.Fatal("lookup exposes mutable key")
+		}
+		if _, ok := settings.SigningKey(other); ok {
+			t.Fatal("receiver loaded another destination key")
+		}
+		if _, ok := settings.SigningKey("unknown"); ok {
+			t.Fatal("unknown key accepted")
+		}
+	}
+	values := validEnvironment()
+	values["FULFILLMENT_SIGNING_KEY_V1"] = strings.Repeat("ab", 33)
+	if _, err := LoadFrom(ServiceWorker, mapLookup(values)); err == nil {
+		t.Fatal("oversized signing key accepted")
+	}
+}

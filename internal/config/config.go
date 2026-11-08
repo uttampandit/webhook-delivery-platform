@@ -245,6 +245,9 @@ func (settings *Settings) readSigningKey(lookup func(string) (string, bool), env
 	if err != nil {
 		return err
 	}
+	if len(key) != 32 {
+		return errors.New(envName + " must be a hexadecimal secret with exactly 32 bytes")
+	}
 	settings.signingKeys[keyRef] = key
 	return nil
 }
