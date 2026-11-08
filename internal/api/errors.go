@@ -8,6 +8,7 @@ import (
 type errorCode string
 
 const (
+	codeInvalidState          errorCode = "invalid_state"
 	codeUnauthorized          errorCode = "unauthorized"
 	codeInvalidJSON           errorCode = "invalid_json"
 	codeInvalidRequest        errorCode = "invalid_request"
@@ -52,6 +53,8 @@ func errorDetailsFor(code errorCode) (int, string) {
 		return http.StatusBadRequest, "unknown destination"
 	case codeIdempotencyConflict:
 		return http.StatusConflict, "idempotency conflict"
+	case codeInvalidState:
+		return http.StatusConflict, "invalid state"
 	case codeNotFound:
 		return http.StatusNotFound, "not found"
 	case codeDependencyUnavailable:

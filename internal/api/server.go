@@ -15,6 +15,7 @@ import (
 )
 
 type Repository interface {
+	Replay(context.Context, string, string, string, string) (store.ReplayResult, error)
 	Ping(context.Context) error
 	CheckReadiness(context.Context, config.Registry) error
 	ListDestinations(context.Context, string) ([]store.DestinationSummary, error)
@@ -81,6 +82,20 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			server.getEvent(w, r)
+			return
+		}
+
+		if strings.HasPrefix(r.URL.Path, "/v1/deliveries/") && strings.HasSuffix(r.URL.Path, "/replay") {
+			id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v1/deliveries/"), "/replay")
+			if strings.ContainsRune(id, '/') {
+				writeError(w, r, codeNotFound)
+				return
+			}
+			if r.Method != http.MethodPost {
+				methodNotAllowed(w, http.MethodPost)
+				return
+			}
+			server.replayDelivery(w, r, id)
 			return
 		}
 		if r.URL.Path != "/v1/destinations" {

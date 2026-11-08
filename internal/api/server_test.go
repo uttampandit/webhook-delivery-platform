@@ -294,3 +294,7 @@ func TestRequestIDsAreUUIDv4(t *testing.T) {
 		t.Fatalf("request ID %q contains non-hex digits: %v", id, err)
 	}
 }
+
+func (repository *testRepository) Replay(context.Context, string, string, string, string) (store.ReplayResult, error) {
+	return store.ReplayResult{}, store.ErrStoreUnavailable
+}

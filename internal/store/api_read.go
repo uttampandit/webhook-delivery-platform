@@ -135,3 +135,10 @@ func (repository *APIReadRepository) ListDestinations(ctx context.Context, tenan
 	}
 	return items, nil
 }
+
+func (repository *APIReadRepository) Replay(ctx context.Context, tenantID, deliveryID, key, actor string) (ReplayResult, error) {
+	if repository == nil {
+		return ReplayResult{}, ErrStoreUnavailable
+	}
+	return NewReplayRepository(repository.pool).Replay(ctx, tenantID, deliveryID, key, actor)
+}
