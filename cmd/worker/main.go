@@ -31,7 +31,7 @@ func run() error {
 	if err != nil {
 		return errors.New("could not configure worker database")
 	}
-	cfg.ConnConfig.RuntimeParams["statement_timeout"] = settings.DBStatementTimeout().String()
+	cfg.ConnConfig.RuntimeParams["statement_timeout"] = settings.PostgreSQLStatementTimeout()
 	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {
 		return errors.New("could not create worker database pool")

@@ -168,7 +168,7 @@ func ingestWorkerEvent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, de
 	for _, id := range destinations {
 		quoted = append(quoted, fmt.Sprintf("%q", id))
 	}
-	body := fmt.Sprintf(`{"type":"order.confirmed","payload":{"scenario_id":"worker_1","order_id":"order-1","quantity":2},"destination_ids":[%s]}`, strings.Join(quoted, ","))
+	body := fmt.Sprintf(`{"type":"order.confirmed","payload":{"scenario_id":"worker_1","order_id":"order-1","quantity":2,"extra":1e1000},"destination_ids":[%s]}`, strings.Join(quoted, ","))
 	for i, want := range []int{202, 200} {
 		request, _ := http.NewRequestWithContext(ctx, "POST", handler.URL+"/v1/events", strings.NewReader(body))
 		request.Header.Set("Authorization", "Bearer "+testSecret)
@@ -194,6 +194,10 @@ func ingestWorkerEvent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, de
 	}
 	if events != 1 || deliveries != len(destinations) {
 		t.Fatal("duplicate ingest added rows")
+	}
+	var wire []byte
+	if err := pool.QueryRow(ctx, `SELECT wire_body FROM events WHERE id=$1`, id).Scan(&wire); err != nil || !bytes.Contains(wire, []byte(`"extra":1e1000`)) {
+		t.Fatal("numeric lexeme changed in persisted wire body", err)
 	}
 	return id
 }

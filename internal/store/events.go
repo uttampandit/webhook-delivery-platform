@@ -375,6 +375,9 @@ func marshalOutgoingEvent(eventID, eventType string, occurredAt time.Time, paylo
 
 func rejectDuplicateJSONKeys(raw []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
+	// The validation pass checks JSON syntax and keys, not floating-point range.
+	// Leave numeric lexemes untouched for the authoritative RawMessage payload.
+	decoder.UseNumber()
 	if err := consumeJSONValue(decoder, 0); err != nil {
 		return err
 	}

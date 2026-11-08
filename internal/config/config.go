@@ -329,3 +329,20 @@ func (settings Settings) Registry() Registry {
 	registry, _ := RegistryForMode(settings.runMode)
 	return registry
 }
+
+// PostgreSQLStatementTimeout returns integer milliseconds in PostgreSQL's
+// supported positive range. Round up so sub-millisecond settings never disable
+// the server timeout (zero). The Go operation context retains the exact duration.
+func (settings Settings) PostgreSQLStatementTimeout() string {
+	ms := settings.dbStatementTimeout / time.Millisecond
+	if settings.dbStatementTimeout%time.Millisecond != 0 {
+		ms++
+	}
+	if ms < 1 {
+		ms = 1
+	}
+	if ms > 2147483647 {
+		ms = 2147483647
+	}
+	return strconv.FormatInt(int64(ms), 10)
+}

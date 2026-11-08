@@ -37,7 +37,7 @@ func run() error {
 	if poolConfig.ConnConfig.RuntimeParams == nil {
 		poolConfig.ConnConfig.RuntimeParams = make(map[string]string)
 	}
-	poolConfig.ConnConfig.RuntimeParams["statement_timeout"] = settings.DBStatementTimeout().String()
+	poolConfig.ConnConfig.RuntimeParams["statement_timeout"] = settings.PostgreSQLStatementTimeout()
 	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
 		return errors.New("could not create the PostgreSQL connection pool")

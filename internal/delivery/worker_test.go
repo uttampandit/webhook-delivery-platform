@@ -94,21 +94,27 @@ func TestWorkerCapacityAndFreshShutdownContext(t *testing.T) {
 	}
 }
 func TestWorkerNeverSendsAfterClaimError(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	var sends atomic.Int32
+	calls := 0
 	claims := claimFunc(func(context.Context, int) ([]ClaimedDelivery, error) {
+		calls++
+		if calls == 1 {
+			// Keep the parent live: cancellation must not mask a missing error guard.
+			return []ClaimedDelivery{{}}, errors.New("ambiguous commit")
+		}
 		cancel()
-		return []ClaimedDelivery{{}}, errors.New("ambiguous commit")
+		return nil, nil
 	})
 	w, err := NewWorker(claims, finalizeFunc(func(context.Context, ClaimedDelivery, SendResult) (FinalizationResult, error) {
 		t.Error("unexpected finalization")
 		return FinalizationResult{}, nil
-	}), sendFunc(func(context.Context, ClaimedDelivery) SendResult { sends.Add(1); return SendResult{} }), WorkerOptions{4, time.Second, time.Second, time.Second})
+	}), sendFunc(func(context.Context, ClaimedDelivery) SendResult { sends.Add(1); return SendResult{} }), WorkerOptions{1, time.Millisecond, time.Second, time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = w.Run(ctx); err != nil || sends.Load() != 0 {
+	if err = w.Run(ctx); err != nil || sends.Load() != 0 || calls != 2 {
 		t.Fatal("unconfirmed claim sent", err)
 	}
 }

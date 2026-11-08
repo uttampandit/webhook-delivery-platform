@@ -283,10 +283,16 @@ func isValidUUIDParam(value string) bool {
 	if len(value) != 36 {
 		return false
 	}
-	for _, c := range value {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || c == '-') {
+	for i, c := range value {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if c != '-' {
+				return false
+			}
+			continue
+		}
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
 			return false
 		}
 	}
-	return value[8] == '-' && value[13] == '-' && value[18] == '-' && value[23] == '-'
+	return true
 }

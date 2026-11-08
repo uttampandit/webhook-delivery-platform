@@ -408,8 +408,8 @@ func TestGetEventDetailReturns404ForNotFound(t *testing.T) {
 }
 
 func TestGetEventDetailReturns400ForMalformedID(t *testing.T) {
-	handler := NewHandler(testSettings(t), &testRepository{})
-	for _, id := range []string{"not-a-uuid", "123", "", "00000000-0000-4000-8000-00000000000G"} {
+	handler := NewHandler(testSettings(t), &testRepository{getEventError: store.ErrStoreUnavailable})
+	for _, id := range []string{"not-a-uuid", "123", "", "00000000-0000-4000-8000-00000000000G", "-0000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-00000000000-"} {
 		path := "/v1/events/" + id
 		if id == "" {
 			// Empty segment after prefix — handled as routing: /v1/events/ → invalid UUID param

@@ -119,3 +119,26 @@ func mustParseTime(t *testing.T, value string) time.Time {
 	}
 	return parsed
 }
+
+func TestEventJSONNumbersPreserveLexemes(t *testing.T) {
+	for _, number := range []string{"1e1000", "-1e1000", "1e-1000", "9007199254740993"} {
+		t.Run(number, func(t *testing.T) {
+			raw := []byte(strings.Replace(validEventRequestBody, `"quantity":1`, `"quantity":1,"extra":`+number, 1))
+			request, err := ValidateEventRequest(raw)
+			if err != nil {
+				t.Fatalf("valid JSON number rejected: %v", err)
+			}
+			if !bytes.Equal(request.rawBody, raw) {
+				t.Fatal("raw body changed")
+			}
+			wire, err := marshalOutgoingEvent("00000000-0000-4000-8000-000000000001", request.eventType, time.Now(), request.payload)
+			if err != nil || !bytes.Contains(wire, []byte(`"extra":`+number)) {
+				t.Fatalf("number changed in wire body: %s, %v", wire, err)
+			}
+			envelope := strings.Replace(demoBody, `"quantity":2`, `"quantity":2,"extra":`+number, 1)
+			if _, err := ValidateDemoEnvelope([]byte(envelope)); err != nil {
+				t.Fatalf("ignored receiver data rejected: %v", err)
+			}
+		})
+	}
+}
