@@ -1,6 +1,6 @@
 # Understand the project before reading the code
 
-This guide explains the design. The backend is implemented through Task 16; the dashboard, full Compose runtime and actual SIGKILL experiments remain later milestones. See the [README](../README.md) for current commands and limits.
+This guide explains the design. The backend is implemented through Task 18; the dashboard, full Compose runtime and actual SIGKILL experiments remain later milestones. See the [README](../README.md) for current commands and limits.
 
 ## Start with one order
 

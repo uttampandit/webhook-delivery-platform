@@ -192,3 +192,31 @@ func TestHTTPTransportBoundaryDisposalCapAndNoReplayBody(t *testing.T) {
 		t.Fatal("unbounded/undisposed response", result, body)
 	}
 }
+
+func TestHTTPMalformedAndOversizedHeadersAreUnconfirmed(t *testing.T) {
+	for name, raw := range map[string]string{
+		"malformed status":  "HTTP/1.1 invalid\r\n\r\n",
+		"oversized headers": "HTTP/1.1 200 OK\r\nX-Fill: " + strings.Repeat("p", 32*1024) + "\r\nContent-Length: 0\r\n\r\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				conn, _, err := w.(http.Hijacker).Hijack()
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				defer conn.Close()
+				_, _ = io.WriteString(conn, raw)
+			}))
+			defer server.Close()
+			sender := testHTTPSender(t, time.Second)
+			started := time.Now()
+			result := sender.Send(context.Background(), httpClaim(server.URL))
+			if result.Outcome != Unconfirmed || result.HTTPStatus != nil || result.ErrorCode != "network_error" || calls.Load() != 1 || time.Since(started) > 2*time.Second {
+				t.Fatalf("malformed response classification: %+v calls=%d", result, calls.Load())
+			}
+		})
+	}
+}

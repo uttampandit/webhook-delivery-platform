@@ -1,6 +1,6 @@
 # Understanding checks
 
-Current checkpoint: backend through Task 16. Later SIGKILL, dashboard and benchmark sections below are planned exercises, not completed demonstrations. See the [README](../README.md) for available commands.
+Current checkpoint: backend through Task 18. Later SIGKILL, dashboard and benchmark sections below are planned exercises, not completed demonstrations. See the [README](../README.md) for available commands.
 
 Do these in a disposable test database or fresh scenario. Do not mutate real/demo persisted deliveries manually to get a better recording. The coding agent can guide the user and explain answers, but should let the user attempt the reasoning first.
 

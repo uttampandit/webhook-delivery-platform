@@ -86,6 +86,10 @@ func TestEventsReadHTTPIntegrationPostgreSQL(t *testing.T) {
 	})
 
 	t.Run("pagination with cursor covers all items without duplicates", func(t *testing.T) {
+		// Force exact timestamp ties through the actual HTTP cursor encoder/decoder.
+		if _, err := database.Pool.Exec(ctx, `UPDATE events SET created_at='2026-01-01T00:00:00Z'`); err != nil {
+			t.Fatal(err)
+		}
 		// Page 1 with limit=2
 		req1 := authenticatedRequest(http.MethodGet, "/v1/events?limit=2")
 		rec1 := httptest.NewRecorder()
@@ -125,8 +129,8 @@ func TestEventsReadHTTPIntegrationPostgreSQL(t *testing.T) {
 		if err := json.Unmarshal(rec2.Body.Bytes(), &p2); err != nil {
 			t.Fatal(err)
 		}
-		if len(p2.Items) < 1 {
-			t.Fatalf("page 2 items = %d, want at least 1", len(p2.Items))
+		if len(p2.Items) != 1 || p2.NextCursor != nil {
+			t.Fatalf("page 2 items = %d cursor_present=%t, want 1 and no cursor", len(p2.Items), p2.NextCursor != nil)
 		}
 
 		// Check for no overlap between page 1 and page 2
@@ -229,6 +233,32 @@ func TestEventsReadHTTPIntegrationPostgreSQL(t *testing.T) {
 		handler.ServeHTTP(recSpoof, reqSpoof)
 		if recSpoof.Code != http.StatusNotFound {
 			t.Fatalf("spoofed header foreign event lookup code = %d, want 404", recSpoof.Code)
+		}
+	})
+	t.Run("real database private snapshots stay out of authenticated HTTP", func(t *testing.T) {
+		const privateMarker = "planted-private-snapshot-marker"
+		if _, err := database.Pool.Exec(ctx, `UPDATE deliveries SET url_snapshot=$1,key_ref_snapshot=$2`, "http://user:"+privateMarker+"@127.0.0.1/private", privateMarker); err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{"/v1/events", "/v1/events/" + eventIDs[0], "/v1/destinations"} {
+			authorized := httptest.NewRecorder()
+			handler.ServeHTTP(authorized, authenticatedRequest(http.MethodGet, path))
+			if authorized.Code != 200 {
+				t.Fatalf("status=%d", authorized.Code)
+			}
+			body := authorized.Body.String()
+			for _, secret := range []string{privateMarker, settings.APIToken(), "url_snapshot", "key_ref_snapshot", "claim_token", "wire_body", "request_hash"} {
+				if strings.Contains(body, secret) {
+					t.Fatal("private field/value appeared in public HTTP DTO")
+				}
+			}
+			denied := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			request.Header.Set("Authorization", "Bearer "+privateMarker)
+			handler.ServeHTTP(denied, request)
+			if denied.Code != 401 || strings.Contains(denied.Body.String(), privateMarker) {
+				t.Fatal("unauthorized response exposed input or data")
+			}
 		}
 	})
 }

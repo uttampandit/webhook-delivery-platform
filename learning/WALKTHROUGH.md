@@ -1,6 +1,6 @@
 # Explain the project as you build it
 
-Current checkpoint: backend through Task 16. Later SIGKILL, dashboard and benchmark sections below are planned exercises, not completed demonstrations. See the [README](../README.md) for available commands.
+Current checkpoint: backend through Task 18. Later SIGKILL, dashboard and benchmark sections below are planned exercises, not completed demonstrations. See the [README](../README.md) for available commands.
 
 Read the matching section after the named task. The implementation agent should answer using the actual source and tests; these are expected explanations, not a claim of candidate mastery.
 

@@ -2,7 +2,7 @@
 
 A local backend project for accepting events, delivering signed webhooks to independent destinations, recovering abandoned work, and replaying exhausted deliveries.
 
-The backend is implemented through **Task 17**, with a subsequent correctness review and regression fixes. A React dashboard and the full release workflow are still planned. This is a synthetic, single-operator learning project—not a production multi-tenant service.
+The backend is implemented through **Task 18**, with a subsequent correctness review and regression fixes. A React dashboard and the full release workflow are still planned. This is a synthetic, single-operator learning project—not a production multi-tenant service.
 
 ## What it does
 
@@ -35,7 +35,7 @@ Real PostgreSQL and HTTP/process tests cover concurrency, rollback, signing, ind
 
 Recover an outage scenario using authenticated `PATCH /control/scenarios/{id}` with `{"mode":"normal"}`. Dedupe cannot change; a consumed drop cannot be rearmed. HTTP 503/429 modes record rejection before effects and return `Retry-After: 2`.
 
-The frontend is a scaffold. Docker Compose currently runs PostgreSQL; the API, worker and two receivers run separately on the host. Full Compose runtime, dashboard, deterministic fault scenarios, metrics, benchmarks and the final release audit are not complete. There are no measured throughput, adoption or production-readiness claims.
+The frontend is a scaffold. Docker Compose currently runs PostgreSQL; the API, worker and two receivers run separately on the host. Full Compose runtime, dashboard, full scripted demo, metrics, benchmarks and the final release audit are not complete. There are no measured throughput, adoption or production-readiness claims.
 
 ## Stack and prerequisites
 
@@ -91,6 +91,8 @@ RUN_MODE=host ./bin/worker
 | Notification webhook / controls | `127.0.0.1:8083` / `127.0.0.1:9093` |
 
 The API exposes `/health/live` and `/health/ready`. Receiver controls require `DEMO_CONTROL_TOKEN`, including control readiness; they are not served on webhook ports.
+
+Backend contract tests and their limits are mapped in [the verification matrix](docs/verification-matrix.md). Process-crash recovery remains pending Task 19.
 
 ## Internal demo commands
 
