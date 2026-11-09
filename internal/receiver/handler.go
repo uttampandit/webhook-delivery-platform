@@ -19,7 +19,8 @@ type Repository interface {
 	Ping(context.Context) error
 	CreateScenario(context.Context, string, string, bool) (bool, error)
 	Inspect(context.Context, string) (store.DemoScenario, error)
-	Apply(context.Context, string, store.DemoEnvelope) error
+	Apply(context.Context, string, store.DemoEnvelope) (store.DemoResult, error)
+	RecoverScenario(context.Context, string) error
 }
 
 type Handler struct {
@@ -53,11 +54,19 @@ func (h *Handler) Webhook() http.Handler {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), h.timeout)
 		defer cancel()
-		if err = h.repo.Apply(ctx, operation, envelope); err != nil {
+		result, err := h.repo.Apply(ctx, operation, envelope)
+		if err != nil {
 			writeError(w, err)
 			return
 		}
-		w.WriteHeader(204)
+		if result.Drop {
+			dropCommittedResponse(w, r)
+			return
+		}
+		if result.HTTPStatus == 429 || result.HTTPStatus == 503 {
+			w.Header().Set("Retry-After", "2")
+		}
+		w.WriteHeader(result.HTTPStatus)
 	})
 	return mux
 }
@@ -111,8 +120,28 @@ func (h *Handler) Control() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(out)
 	})
-	// Recovery from faulty modes is deferred until those modes exist (Task 16).
-	mux.HandleFunc("PATCH /control/scenarios/{id}", func(w http.ResponseWriter, r *http.Request) { writeError(w, store.ErrInvalidInput) })
+	mux.HandleFunc("PATCH /control/scenarios/{id}", func(w http.ResponseWriter, r *http.Request) {
+		raw, err := readBody(w, r, 4096)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		var fields map[string]json.RawMessage
+		if strict(raw, &fields) != nil || len(fields) != 1 {
+			writeError(w, store.ErrInvalidInput)
+			return
+		}
+		var mode string
+		if json.Unmarshal(fields["mode"], &mode) != nil || mode != "normal" {
+			writeError(w, store.ErrInvalidInput)
+			return
+		}
+		if err = h.repo.RecoverScenario(r.Context(), r.PathValue("id")); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(200)
+	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		values := r.Header.Values("Authorization")
 		if len(values) != 1 || h.token == "" || !bearer(values[0], h.token) {

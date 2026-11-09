@@ -39,7 +39,7 @@ func TestStatementTimeoutAcceptedByPostgreSQL(t *testing.T) {
 			}
 			defer pool.Close()
 			var got int64
-			if err := pool.QueryRow(ctx, `SELECT setting::bigint FROM pg_settings WHERE name='statement_timeout'`).Scan(&got); err != nil {
+			if err := pool.QueryRow(ctx, `SELECT (EXTRACT(EPOCH FROM current_setting('statement_timeout')::interval) * 1000)::bigint`).Scan(&got); err != nil {
 				t.Fatal("validated duration prevented PostgreSQL connection")
 			}
 			if got != tc.want {

@@ -2,7 +2,7 @@
 
 A local backend project for accepting events, delivering signed webhooks to independent destinations, recovering abandoned work, and replaying exhausted deliveries.
 
-The backend is implemented through **Task 15**, with a subsequent correctness review and regression fixes. A React dashboard, production receiver fault modes, and the full release workflow are still planned. This is a synthetic, single-operator learning project—not a production multi-tenant service.
+The backend is implemented through **Task 16**, with a subsequent correctness review and regression fixes. A React dashboard and the full release workflow are still planned. This is a synthetic, single-operator learning project—not a production multi-tenant service.
 
 ## What it does
 
@@ -24,14 +24,16 @@ The central question is: **what if a receiver commits its work, but the sender n
 - **Bounded retries:** uncertainty, HTTP 429 and 5xx retry within five claims per cycle. Other non-2xx statuses are permanent. Jitter and bounded `Retry-After` schedule future work without transaction-held sleeps.
 - **Lease recovery:** a worker-side reaper preserves abandoned attempts as unconfirmed and schedules a retry or exhaustion. Fencing rejects stale database writes; it cannot prevent an already-issued external request.
 - **Audited replay:** authenticated, idempotent replay starts a fresh cycle for a dead delivery while preserving its operation ID, body, destination snapshots, and lifetime attempt history.
-- **Synthetic receivers:** signed normal-mode requests support persisted deduplication on or off. Controls use a separate token-protected listener.
+- **Synthetic receivers:** signed normal-mode requests support persisted deduplication on or off. Controls use a separate token-protected listener. Scenarios support `normal`, `http_503`, `http_429` and `commit_drop_once`; the latter consumes a persisted flag and closes the connection after commit.
 - **Read API:** authenticated event list/detail expose delivery, attempt and replay history. List pagination uses timestamp/UUID cursors.
 
 Defaults: worker concurrency 4, HTTP deadline 5 seconds, lease 30 seconds, lease recovery tick 1 second. Destinations are fixed. API and control tokens come from local configuration.
 
 ## Current limits
 
-Real PostgreSQL and HTTP/process tests cover concurrency, rollback, signing, independent fan-out, graceful SIGTERM, lease recovery and replay races. **Actual SIGKILL recovery and post-commit dropped-response experiments remain later milestones.** Transport read errors and timeouts do not prove that a receiver applied no effect.
+Real PostgreSQL and HTTP/process tests cover concurrency, rollback, signing, independent fan-out, graceful SIGTERM, lease recovery, replay races and response loss. **Actual SIGKILL recovery remains a later milestone.** Real HTTP/1.1 tests now verify a socket close after committed receiver effects, deduplication on/off, and consumed flags surviving process restart. Transport read errors and timeouts do not prove that a receiver applied no effect.
+
+Recover an outage scenario using authenticated `PATCH /control/scenarios/{id}` with `{"mode":"normal"}`. Dedupe cannot change; a consumed drop cannot be rearmed. HTTP 503/429 modes record rejection before effects and return `Retry-After: 2`.
 
 The frontend is a scaffold. Docker Compose currently runs PostgreSQL; the API, worker and two receivers run separately on the host. Full Compose runtime, dashboard, deterministic fault scenarios, metrics, benchmarks and the final release audit are not complete. There are no measured throughput, adoption or production-readiness claims.
 

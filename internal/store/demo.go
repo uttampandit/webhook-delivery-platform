@@ -39,7 +39,7 @@ func (d *DemoRepository) CreateScenario(ctx context.Context, id, mode string, de
 	if !ValidScenarioID(id) {
 		return false, ErrInvalidInput
 	}
-	if mode != "normal" {
+	if !validDemoMode(mode) {
 		return false, ErrDemoUnsupported
 	}
 	tx, err := d.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
@@ -47,7 +47,11 @@ func (d *DemoRepository) CreateScenario(ctx context.Context, id, mode string, de
 		return false, ErrDemoUnavailable
 	}
 	defer tx.Rollback(ctx)
-	tag, err := tx.Exec(ctx, `INSERT INTO demo_scenarios(receiver_code,scenario_id,mode,dedupe_enabled) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, d.code, id, mode, dedupe)
+	drop := 0
+	if mode == "commit_drop_once" {
+		drop = 1
+	}
+	tag, err := tx.Exec(ctx, `INSERT INTO demo_scenarios(receiver_code,scenario_id,mode,dedupe_enabled,drop_remaining) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, d.code, id, mode, dedupe, drop)
 	if err != nil {
 		return false, ErrDemoUnavailable
 	}
@@ -110,8 +114,109 @@ func (d *DemoRepository) Inspect(ctx context.Context, id string) (DemoScenario, 
 
 // Apply atomically persists ledger, effect and request. A commit error never
 // produces an acknowledgment: the sender must treat that outcome as uncertain.
-func (d *DemoRepository) Apply(ctx context.Context, operation string, e DemoEnvelope) error {
+func (d *DemoRepository) Apply(ctx context.Context, operation string, e DemoEnvelope) (DemoResult, error) {
+	empty := DemoResult{}
 	if !e.valid || !isCanonicalUUID(operation) {
+		return empty, ErrInvalidInput
+	}
+	tx, err := d.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return empty, ErrDemoUnavailable
+	}
+	defer tx.Rollback(ctx)
+	var mode string
+	var dedupe bool
+	var drop int
+	err = tx.QueryRow(ctx, `SELECT mode,dedupe_enabled,drop_remaining FROM demo_scenarios WHERE receiver_code=$1 AND scenario_id=$2 FOR UPDATE`, d.code, e.scenario).Scan(&mode, &dedupe, &drop)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return empty, ErrDemoNotFound
+	}
+	if err != nil {
+		return empty, ErrDemoUnavailable
+	}
+	if !validDemoMode(mode) {
+		return empty, ErrDemoUnsupported
+	}
+	if mode == "http_503" || mode == "http_429" {
+		outcome, status := "reject_503", 503
+		if mode == "http_429" {
+			outcome, status = "reject_429", 429
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO demo_requests(receiver_code,scenario_id,operation_id,planned_outcome,business_effect_added) VALUES($1,$2,$3,$4,false)`, d.code, e.scenario, operation, outcome); err != nil {
+			return empty, ErrDemoUnavailable
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return empty, ErrDemoUnavailable
+		}
+		return DemoResult{HTTPStatus: status}, nil
+	}
+	added, conflict := true, false
+	if dedupe {
+		tag, err := tx.Exec(ctx, `INSERT INTO demo_dedup(receiver_code,scenario_id,operation_id,wire_hash) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, d.code, e.scenario, operation, e.hash[:])
+		if err != nil {
+			return empty, ErrDemoUnavailable
+		}
+		added = tag.RowsAffected() == 1
+		if !added {
+			var hash []byte
+			if err = tx.QueryRow(ctx, `SELECT wire_hash FROM demo_dedup WHERE receiver_code=$1 AND scenario_id=$2 AND operation_id=$3`, d.code, e.scenario, operation).Scan(&hash); err != nil {
+				return empty, ErrDemoUnavailable
+			}
+			conflict = !sameDemoHash(hash, e.hash)
+		}
+	}
+	if added {
+		_, effectID, err := newEventUUID()
+		if err != nil {
+			return empty, ErrDemoUnavailable
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO demo_effects(id,receiver_code,scenario_id,operation_id,order_id,quantity) VALUES($1,$2,$3,$4,$5,$6)`, effectID, d.code, e.scenario, operation, e.order, e.quantity); err != nil {
+			return empty, ErrDemoUnavailable
+		}
+	}
+	result := DemoResult{HTTPStatus: 204}
+	outcome := "acknowledge"
+	if !conflict && mode == "commit_drop_once" && drop == 1 {
+		tag, err := tx.Exec(ctx, `UPDATE demo_scenarios SET drop_remaining=0,updated_at=clock_timestamp() WHERE receiver_code=$1 AND scenario_id=$2 AND drop_remaining=1`, d.code, e.scenario)
+		if err != nil || tag.RowsAffected() != 1 {
+			return empty, ErrDemoUnavailable
+		}
+		outcome = "drop"
+		result.Drop = true
+	}
+	if conflict {
+		outcome = "conflict"
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO demo_requests(receiver_code,scenario_id,operation_id,planned_outcome,business_effect_added) VALUES($1,$2,$3,$4,$5)`, d.code, e.scenario, operation, outcome, added); err != nil {
+		return empty, ErrDemoUnavailable
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return empty, ErrDemoUnavailable
+	}
+	if conflict {
+		return empty, ErrDemoConflict
+	}
+	return result, nil
+}
+
+// DemoResult describes post-commit response intent, not proof of observation.
+type DemoResult struct {
+	HTTPStatus int
+	Drop       bool
+}
+
+func validDemoMode(mode string) bool {
+	switch mode {
+	case "normal", "http_503", "http_429", "commit_drop_once":
+		return true
+	}
+	return false
+}
+
+// RecoverScenario only permits an outage -> normal transition (or an
+// idempotent normal -> normal). It never changes dedupe or rearms a drop.
+func (d *DemoRepository) RecoverScenario(ctx context.Context, id string) error {
+	if !ValidScenarioID(id) {
 		return ErrInvalidInput
 	}
 	tx, err := d.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
@@ -120,53 +225,19 @@ func (d *DemoRepository) Apply(ctx context.Context, operation string, e DemoEnve
 	}
 	defer tx.Rollback(ctx)
 	var mode string
-	var dedupe bool
-	err = tx.QueryRow(ctx, `SELECT mode,dedupe_enabled FROM demo_scenarios WHERE receiver_code=$1 AND scenario_id=$2 FOR UPDATE`, d.code, e.scenario).Scan(&mode, &dedupe)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if err = tx.QueryRow(ctx, `SELECT mode FROM demo_scenarios WHERE receiver_code=$1 AND scenario_id=$2 FOR UPDATE`, d.code, id).Scan(&mode); errors.Is(err, pgx.ErrNoRows) {
 		return ErrDemoNotFound
-	}
-	if err != nil {
+	} else if err != nil {
 		return ErrDemoUnavailable
 	}
-	if mode != "normal" {
-		return ErrDemoUnsupported
+	if mode != "normal" && mode != "http_503" && mode != "http_429" {
+		return ErrInvalidInput
 	}
-	added, conflict := true, false
-	if dedupe {
-		tag, err := tx.Exec(ctx, `INSERT INTO demo_dedup(receiver_code,scenario_id,operation_id,wire_hash) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, d.code, e.scenario, operation, e.hash[:])
-		if err != nil {
-			return ErrDemoUnavailable
-		}
-		added = tag.RowsAffected() == 1
-		if !added {
-			var hash []byte
-			if err = tx.QueryRow(ctx, `SELECT wire_hash FROM demo_dedup WHERE receiver_code=$1 AND scenario_id=$2 AND operation_id=$3`, d.code, e.scenario, operation).Scan(&hash); err != nil {
-				return ErrDemoUnavailable
-			}
-			conflict = !sameDemoHash(hash, e.hash)
-		}
-	}
-	if added {
-		_, effectID, err := newEventUUID()
-		if err != nil {
-			return ErrDemoUnavailable
-		}
-		if _, err = tx.Exec(ctx, `INSERT INTO demo_effects(id,receiver_code,scenario_id,operation_id,order_id,quantity) VALUES($1,$2,$3,$4,$5,$6)`, effectID, d.code, e.scenario, operation, e.order, e.quantity); err != nil {
-			return ErrDemoUnavailable
-		}
-	}
-	outcome := "acknowledge"
-	if conflict {
-		outcome = "conflict"
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO demo_requests(receiver_code,scenario_id,operation_id,planned_outcome,business_effect_added) VALUES($1,$2,$3,$4,$5)`, d.code, e.scenario, operation, outcome, added); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE demo_scenarios SET mode='normal',updated_at=clock_timestamp() WHERE receiver_code=$1 AND scenario_id=$2`, d.code, id); err != nil {
 		return ErrDemoUnavailable
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return ErrDemoUnavailable
-	}
-	if conflict {
-		return ErrDemoConflict
 	}
 	return nil
 }

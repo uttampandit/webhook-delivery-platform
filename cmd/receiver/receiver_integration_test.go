@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/uttampandit/webhook-delivery-platform/internal/delivery"
 	"github.com/uttampandit/webhook-delivery-platform/internal/signing"
 	"github.com/uttampandit/webhook-delivery-platform/internal/store"
 	"github.com/uttampandit/webhook-delivery-platform/internal/testutil"
@@ -216,7 +217,7 @@ func TestReceiverHTTPPostgresAndRestart(t *testing.T) {
 	check(send("POST", control+"/control/scenarios", create("on", false), controlToken, false), 409)
 	check(send("PATCH", control+"/control/scenarios/on", `{"dedupe_enabled":false}`, controlToken, false), 400)
 	for _, mode := range []string{"http_503", "http_429", "commit_drop_once"} {
-		check(send("POST", control+"/control/scenarios", strings.Replace(create("unsupported", true), "normal", mode, 1), controlToken, false), 422)
+		check(send("POST", control+"/control/scenarios", strings.Replace(create("supported_"+mode, true), "normal", mode, 1), controlToken, false), 201)
 	}
 	check(send("POST", webhook+"/webhook", body("missing"), "", true), 404)
 	check(send("POST", webhook+"/webhook", body("on"), "", false), 401)
@@ -313,5 +314,30 @@ func TestReceiverHTTPPostgresAndRestart(t *testing.T) {
 	counts("on", 4, 1)
 	check(send("POST", webhook+"/webhook", body("off"), "", true), 204)
 	counts("off", 3, 3)
+
+	// Real receiver process restart must not rearm an already consumed drop.
+	check(send("POST", control+"/control/scenarios", strings.Replace(create("process_drop", true), "normal", "commit_drop_once", 1), controlToken, false), 201)
+	sender, err := delivery.NewHTTPSender(signing.Auth{Keys: testKeys{}}, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sender.Close()
+	dropClaim := delivery.ClaimedDelivery{DeliveryID: op, URLSnapshot: webhook + "/webhook", KeyRefSnapshot: "fulfillment-v1", WireBody: []byte(body("process_drop"))}
+	firstDrop := sender.Send(ctx, dropClaim)
+	if firstDrop.Outcome != delivery.Unconfirmed || firstDrop.HTTPStatus != nil {
+		t.Fatal("no actual process response loss", firstDrop)
+	}
+	counts("process_drop", 1, 1)
+	stop()
+	stop = start()
+	secondDrop := sender.Send(ctx, dropClaim)
+	if secondDrop.Outcome != delivery.Acknowledged {
+		t.Fatal("process restart rearmed drop", secondDrop)
+	}
+	counts("process_drop", 2, 1)
+	out = inspect("process_drop")
+	if out.DropRemaining != 0 {
+		t.Fatal("consumed flag reset on process restart")
+	}
 	stop()
 }

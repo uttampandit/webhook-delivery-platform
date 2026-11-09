@@ -1,6 +1,6 @@
 # Understand the project before reading the code
 
-This guide explains the design. The backend is implemented through Task 15; the dashboard, production fault modes, full Compose runtime and actual SIGKILL/drop-response experiments remain later milestones. See the [README](../README.md) for current commands and limits.
+This guide explains the design. The backend is implemented through Task 16; the dashboard, full Compose runtime and actual SIGKILL experiments remain later milestones. See the [README](../README.md) for current commands and limits.
 
 ## Start with one order
 
@@ -45,7 +45,7 @@ In this version a key is retained indefinitely and scoped to the tenant. The sam
 
 ## The failure that makes the project interesting
 
-The following dropped-response experiment is planned for later tasks. Normal-mode persisted deduplication is already implemented and tested.
+The following dropped-response behavior is implemented and tested with real HTTP/1.1 sockets and PostgreSQL, including a receiver process restart. Actual worker SIGKILL experiments remain a later milestone.
 
 1. The worker sends the fulfillment webhook.
 2. The receiver records the fulfillment effect and commits it.
