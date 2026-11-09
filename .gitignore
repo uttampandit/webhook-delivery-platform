@@ -3,6 +3,10 @@
 .env.*
 !.env.example
 *.md
+!README.md
+!learning/PROJECT_EXPLAINED.md
+!learning/WALKTHROUGH.md
+!learning/EXERCISES.md
 prompts/
 .agents/
 .codex/
