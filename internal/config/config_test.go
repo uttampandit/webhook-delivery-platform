@@ -53,6 +53,7 @@ func TestLoadRejectsMissingInvalidAndShortSecretsWithoutDisclosure(t *testing.T)
 		value   string
 	}{
 		{name: "missing API token", service: ServiceAPI, key: "API_TOKEN"},
+		{name: "missing democtl API token", service: ServiceDemoctl, key: "API_TOKEN"},
 		{name: "invalid API token", service: ServiceAPI, key: "API_TOKEN", value: planted},
 		{name: "short worker signing key", service: ServiceWorker, key: "FULFILLMENT_SIGNING_KEY_V1", value: "abcd"},
 		{name: "invalid worker signing key", service: ServiceWorker, key: "NOTIFICATION_SIGNING_KEY_V1", value: planted},

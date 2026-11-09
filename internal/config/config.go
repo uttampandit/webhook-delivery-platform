@@ -141,7 +141,7 @@ func LoadFrom(service Service, lookup func(string) (string, bool)) (Settings, er
 		signingKeys:        make(map[string][]byte),
 	}
 
-	if service == ServiceAPI {
+	if service == ServiceAPI || service == ServiceDemoctl {
 		settings.apiToken, _, err = readSecret(lookup, "API_TOKEN")
 		if err != nil {
 			return Settings{}, err

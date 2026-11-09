@@ -2,7 +2,7 @@
 
 A local backend project for accepting events, delivering signed webhooks to independent destinations, recovering abandoned work, and replaying exhausted deliveries.
 
-The backend is implemented through **Task 16**, with a subsequent correctness review and regression fixes. A React dashboard and the full release workflow are still planned. This is a synthetic, single-operator learning project—not a production multi-tenant service.
+The backend is implemented through **Task 17**, with a subsequent correctness review and regression fixes. A React dashboard and the full release workflow are still planned. This is a synthetic, single-operator learning project—not a production multi-tenant service.
 
 ## What it does
 
@@ -91,6 +91,22 @@ RUN_MODE=host ./bin/worker
 | Notification webhook / controls | `127.0.0.1:8083` / `127.0.0.1:9093` |
 
 The API exposes `/health/live` and `/health/ready`. Receiver controls require `DEMO_CONTROL_TOKEN`, including control readiness; they are not served on webhook ports.
+
+## Internal demo commands
+
+After loading `.env` and starting the four host processes above, use `RUN_MODE=host ./bin/democtl`. Credentials come from the environment; do not put them in flags or recordings.
+
+```sh
+RUN_MODE=host ./bin/democtl scenario create --id walkthrough --receiver both --mode normal --dedupe on
+# Copy the returned fresh scenario_id into the next commands.
+RUN_MODE=host ./bin/democtl publish --scenario <scenario_id> --order order_1001 --destinations fulfillment,notification
+RUN_MODE=host ./bin/democtl wait --event <event_id> --state succeeded --timeout 90s
+RUN_MODE=host ./bin/democtl scenario inspect --id <scenario_id> --receiver both
+RUN_MODE=host ./bin/democtl scenario recover --id <scenario_id> --receiver fulfillment
+RUN_MODE=host ./bin/democtl replay --delivery <dead_delivery_id> --key replay_request_1
+```
+
+Creation appends a random suffix, so repeating the base name creates a fresh scenario without deleting data. Repeat the same publish flags for a retry: deterministic bytes produce the same idempotency key. For an exact saved request, use `publish --file request.json --key request_1`; the file's bytes are preserved. Change the scenario/order or explicit key for a new event. Replay always requires an explicit nonsecret request key. Wait checks every delivery and exits nonzero with its last validated statuses on timeout. Full `run` choreography and saved run reports arrive in Task 25.
 
 ## Send an order event
 
