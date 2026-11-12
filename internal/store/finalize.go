@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -13,7 +12,7 @@ import (
 )
 
 var (
-	ErrStaleClaim            = errors.New("stale delivery claim")
+	ErrStaleClaim            = delivery.ErrStaleFinalization
 	ErrFinalizeUnavailable   = errors.New("finalization store unavailable")
 	ErrFinalizeCommitUnknown = errors.New("finalization commit outcome is unknown")
 	ErrAttemptInvariant      = errors.New("matching running attempt is missing")
@@ -54,7 +53,6 @@ func (r *FinalizationRepository) Finalize(ctx context.Context, c delivery.Claime
 	var count int
 	err = tx.QueryRow(ctx, `SELECT status,generation,claim_token,lease_until,cycle_attempt_count FROM deliveries WHERE id=$1 FOR UPDATE`, c.DeliveryID).Scan(&status, &generation, &token, &lease, &count)
 	stale := func() (delivery.FinalizationResult, error) {
-		slog.InfoContext(ctx, "stale finalization rejected")
 		return empty, ErrStaleClaim
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -113,6 +111,14 @@ func (r *FinalizationRepository) Finalize(ctx context.Context, c delivery.Claime
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return empty, ErrFinalizeCommitUnknown
+	}
+	decision.Outcome = normalized.Outcome
+	if decision.Status == "succeeded" && !c.EventCreatedAt.IsZero() {
+		decision.DeliveryLatency = now.Sub(c.EventCreatedAt)
+		if decision.DeliveryLatency < 0 {
+			decision.DeliveryLatency = 0
+		}
+		decision.DeliveryLatencyObserved = true
 	}
 	return decision, nil
 }

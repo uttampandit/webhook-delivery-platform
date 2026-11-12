@@ -86,7 +86,7 @@ func (r *ClaimRepository) ClaimDue(ctx context.Context, freeSlots int) ([]delive
 			return nil, ErrClaimUnavailable
 		}
 		c := delivery.ClaimedDelivery{DeliveryID: id, AttemptID: attemptID, ClaimToken: token, StartedAt: now}
-		err = tx.QueryRow(ctx, `UPDATE deliveries SET status='in_flight',generation=generation+1,claim_token=$2,lease_until=$3::timestamptz+($4::bigint * interval '1 microsecond'),cycle_attempt_count=cycle_attempt_count+1,lifetime_attempt_count=lifetime_attempt_count+1,updated_at=$3 WHERE id=$1 RETURNING event_id::text,cycle_no,cycle_attempt_count,lifetime_attempt_count,generation,lease_until`, id, token, now, r.lease.Microseconds()).Scan(&c.EventID, &c.CycleNo, &c.CycleAttemptNo, &c.AttemptNo, &c.Generation, &c.LeaseUntil)
+		err = tx.QueryRow(ctx, `UPDATE deliveries SET status='in_flight',generation=generation+1,claim_token=$2,lease_until=$3::timestamptz+($4::bigint * interval '1 microsecond'),cycle_attempt_count=cycle_attempt_count+1,lifetime_attempt_count=lifetime_attempt_count+1,updated_at=$3 WHERE id=$1 RETURNING event_id::text,cycle_no,cycle_attempt_count,lifetime_attempt_count,generation,lease_until,next_attempt_at`, id, token, now, r.lease.Microseconds()).Scan(&c.EventID, &c.CycleNo, &c.CycleAttemptNo, &c.AttemptNo, &c.Generation, &c.LeaseUntil, &c.ScheduledAt)
 		if err != nil {
 			return nil, ErrClaimUnavailable
 		}
@@ -102,7 +102,7 @@ func (r *ClaimRepository) ClaimDue(ctx context.Context, freeSlots int) ([]delive
 	// Immutable body and snapshots are loaded only after releasing row locks.
 	for i := range claims {
 		c := &claims[i]
-		err = r.pool.QueryRow(ctx, `SELECT d.url_snapshot,d.key_ref_snapshot,e.wire_body FROM deliveries d JOIN events e ON e.tenant_id=d.tenant_id AND e.id=d.event_id WHERE d.id=$1`, c.DeliveryID).Scan(&c.URLSnapshot, &c.KeyRefSnapshot, &c.WireBody)
+		err = r.pool.QueryRow(ctx, `SELECT d.url_snapshot,d.key_ref_snapshot,e.wire_body,e.created_at FROM deliveries d JOIN events e ON e.tenant_id=d.tenant_id AND e.id=d.event_id WHERE d.id=$1`, c.DeliveryID).Scan(&c.URLSnapshot, &c.KeyRefSnapshot, &c.WireBody, &c.EventCreatedAt)
 		if err != nil {
 			return nil, ErrClaimUnavailable
 		}

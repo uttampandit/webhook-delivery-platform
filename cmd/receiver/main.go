@@ -16,11 +16,13 @@ import (
 	"github.com/uttampandit/webhook-delivery-platform/internal/receiver"
 	"github.com/uttampandit/webhook-delivery-platform/internal/signing"
 	"github.com/uttampandit/webhook-delivery-platform/internal/store"
+	"github.com/uttampandit/webhook-delivery-platform/internal/telemetry"
 )
 
 func main() {
+	telemetry.ConfigureJSONLogger("receiver")
 	if err := run(); err != nil {
-		slog.Error("receiver stopped", "error", err)
+		slog.Error("receiver stopped", "error_code", "receiver_startup_failed", "error", err)
 		os.Exit(1)
 	}
 }
@@ -34,6 +36,7 @@ func run() error {
 		return errors.New("could not configure receiver database")
 	}
 	cfg.ConnConfig.RuntimeParams["statement_timeout"] = settings.PostgreSQLStatementTimeout()
+	cfg.MaxConns = 8
 	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {
 		return errors.New("could not create receiver database pool")

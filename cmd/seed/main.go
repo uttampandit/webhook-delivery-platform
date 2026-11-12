@@ -12,13 +12,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/uttampandit/webhook-delivery-platform/internal/config"
 	"github.com/uttampandit/webhook-delivery-platform/internal/store"
+	"github.com/uttampandit/webhook-delivery-platform/internal/telemetry"
 )
 
 const seedDeadline = 30 * time.Second
 
 func main() {
+	telemetry.ConfigureJSONLogger("seed")
 	if err := run(); err != nil {
-		slog.Error("seed stopped", "error", err)
+		slog.Error("seed stopped", "error_code", "seed_failed", "error", err)
 		os.Exit(1)
 	}
 }
@@ -33,6 +35,7 @@ func run() error {
 	if err != nil {
 		return errors.New("DATABASE_URL could not configure a PostgreSQL connection")
 	}
+	poolConfig.MaxConns = 2
 	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
 		return errors.New("could not create the PostgreSQL connection pool")

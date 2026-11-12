@@ -33,7 +33,7 @@ func (s *HTTPSender) Close() { s.client.CloseIdleConnections() }
 func (s *HTTPSender) Send(ctx context.Context, c ClaimedDelivery) SendResult {
 	start := time.Now()
 	local := func(code string) SendResult {
-		slog.ErrorContext(ctx, "delivery local configuration failure", "code", code)
+		slog.ErrorContext(ctx, "delivery local configuration failure", "error_code", code)
 		return SendResult{Outcome: LocalFailure, ErrorCode: code, Duration: time.Since(start)}
 	}
 	target, err := url.Parse(c.URLSnapshot)

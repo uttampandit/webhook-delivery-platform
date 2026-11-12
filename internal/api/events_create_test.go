@@ -6,12 +6,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/uttampandit/webhook-delivery-platform/internal/config"
 	"github.com/uttampandit/webhook-delivery-platform/internal/store"
+	"github.com/uttampandit/webhook-delivery-platform/internal/telemetry"
 )
 
 const validCreateEventBody = `{"type":"order.confirmed","payload":{"scenario_id":"api_test","order_id":"order_test","quantity":1},"destination_ids":["00000000-0000-4000-8000-000000000101"]}`
@@ -61,6 +63,52 @@ func TestCreateEventMapsRepositoryResultsAndUsesAuthenticatedTenant(t *testing.T
 	}
 	if !accepted.Deduplicated || accepted.EventID != repository.acceptedEvent.EventID || accepted.DeliveryIDs[0] != repository.acceptedEvent.DeliveryIDs[0] {
 		t.Fatalf("duplicate response changed acceptance identity: %+v", accepted)
+	}
+}
+
+func TestCreateEventRecordsFixedIngestResults(t *testing.T) {
+	metrics, err := telemetry.NewMetrics()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name       string
+		key        string
+		repoError  error
+		deduped    bool
+		wantStatus int
+	}{
+		{name: "accepted", key: "accepted-key", wantStatus: http.StatusAccepted},
+		{name: "deduplicated", key: "dedup-key", deduped: true, wantStatus: http.StatusOK},
+		{name: "conflict", key: "conflict-key", repoError: store.ErrIdempotencyConflict, wantStatus: http.StatusConflict},
+		{name: "invalid", key: "bad key", wantStatus: http.StatusBadRequest},
+		{name: "error", key: "error-key", repoError: store.ErrStoreUnavailable, wantStatus: http.StatusServiceUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repository := &testRepository{acceptError: test.repoError, acceptedEvent: store.AcceptedEvent{EventID: "00000000-0000-4000-8000-000000000301", CreatedAt: time.Now(), Deduplicated: test.deduped}}
+			handler := NewHandlerWithMetrics(testSettings(t), repository, metrics)
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, newCreateEventRequest([]byte(validCreateEventBody), test.key, true))
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("status=%d body=%q, want %d", recorder.Code, recorder.Body.String(), test.wantStatus)
+			}
+		})
+	}
+	unauthorized := httptest.NewRecorder()
+	NewHandlerWithMetrics(testSettings(t), &testRepository{}, metrics).ServeHTTP(unauthorized, newCreateEventRequest([]byte(validCreateEventBody), "unauthorized-key", false))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status=%d, want 401", unauthorized.Code)
+	}
+	recorder := httptest.NewRecorder()
+	metrics.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	for _, result := range []string{"accepted", "deduplicated", "conflict", "invalid", "error"} {
+		want := 1
+		if result == "invalid" {
+			want = 2
+		}
+		if !strings.Contains(recorder.Body.String(), `webhook_ingest_total{result="`+result+`"} `+strconv.Itoa(want)) {
+			t.Errorf("missing ingest result %s count %d: %s", result, want, recorder.Body.String())
+		}
 	}
 }
 

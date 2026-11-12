@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,11 +12,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/uttampandit/webhook-delivery-platform/internal/store"
+	"github.com/uttampandit/webhook-delivery-platform/internal/telemetry"
 )
 
 func main() {
+	telemetry.ConfigureJSONLogger("migrate")
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		slog.Error("migrate stopped", "error_code", "migration_failed", "error", err)
 		os.Exit(1)
 	}
 }
@@ -40,6 +43,7 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("DATABASE_URL is invalid")
 	}
+	config.MaxConns = 2
 	if *database != "" {
 		config.ConnConfig.Database = *database
 	}

@@ -1,7 +1,10 @@
 // Package delivery defines the values passed between scheduling and sending.
 package delivery
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 // ClaimedDelivery is a confirmed, committed claim. DeliveryID is the stable
 // outbound operation ID; Generation and ClaimToken fence database writes only.
@@ -18,6 +21,8 @@ type ClaimedDelivery struct {
 	ClaimToken     string
 	LeaseUntil     time.Time
 	StartedAt      time.Time
+	ScheduledAt    time.Time
+	EventCreatedAt time.Time
 	URLSnapshot    string
 	KeyRefSnapshot string
 	WireBody       []byte
@@ -44,8 +49,13 @@ type SendResult struct {
 }
 
 type FinalizationResult struct {
-	Status         string
-	TerminalReason string
-	RetryDelay     time.Duration
-	NextAttemptAt  *time.Time
+	Outcome                 Outcome
+	Status                  string
+	TerminalReason          string
+	RetryDelay              time.Duration
+	NextAttemptAt           *time.Time
+	DeliveryLatency         time.Duration
+	DeliveryLatencyObserved bool
 }
+
+var ErrStaleFinalization = errors.New("stale delivery finalization rejected")

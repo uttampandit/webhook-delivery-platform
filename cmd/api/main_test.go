@@ -30,7 +30,7 @@ func TestHTTPServerUsesBoundedTimeoutsAndModeBinding(t *testing.T) {
 			if err != nil {
 				t.Fatal("load API settings:", err)
 			}
-			server := newHTTPServer(settings, nil)
+			server := newHTTPServer(settings, nil, nil)
 			if server.Addr != test.address {
 				t.Fatalf("server address = %q, want %q", server.Addr, test.address)
 			}
@@ -38,6 +38,34 @@ func TestHTTPServerUsesBoundedTimeoutsAndModeBinding(t *testing.T) {
 				server.WriteTimeout != 15*time.Second || server.IdleTimeout != 60*time.Second {
 				t.Fatalf("server timeouts = (%s, %s, %s, %s), want (5s, 10s, 15s, 60s)",
 					server.ReadHeaderTimeout, server.ReadTimeout, server.WriteTimeout, server.IdleTimeout)
+			}
+		})
+	}
+}
+
+func TestMetricsServerBindsInternalPortForEachRunMode(t *testing.T) {
+	for _, test := range []struct {
+		mode, address string
+	}{
+		{mode: "host", address: "127.0.0.1:9090"},
+		{mode: "compose", address: ":9090"},
+	} {
+		t.Run(test.mode, func(t *testing.T) {
+			settings, err := config.LoadFrom(config.ServiceAPI, func(key string) (string, bool) {
+				values := map[string]string{
+					"DATABASE_URL": "postgres://user:pass@127.0.0.1:5432/webhook_dev?sslmode=disable",
+					"RUN_MODE":     test.mode,
+					"API_TOKEN":    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+				}
+				value, ok := values[key]
+				return value, ok
+			})
+			if err != nil {
+				t.Fatal("load API settings:", err)
+			}
+			server := newMetricsServer(settings, nil)
+			if server.Addr != test.address || server.ReadHeaderTimeout != 2*time.Second || server.WriteTimeout != 5*time.Second {
+				t.Fatalf("metrics listener address/timeouts = %q/%s/%s", server.Addr, server.ReadHeaderTimeout, server.WriteTimeout)
 			}
 		})
 	}

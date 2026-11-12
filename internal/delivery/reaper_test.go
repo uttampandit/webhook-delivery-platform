@@ -2,13 +2,56 @@ package delivery
 
 import (
 	"context"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/uttampandit/webhook-delivery-platform/internal/telemetry"
 )
 
 type recoverFunc func(context.Context) (int, error)
 
 func (f recoverFunc) RecoverExpired(ctx context.Context) (int, error) { return f(ctx) }
+
+type detailedRecoverFunc func(context.Context) (int, int, error)
+
+func (f detailedRecoverFunc) RecoverExpired(ctx context.Context) (int, error) {
+	recovered, _, err := f(ctx)
+	return recovered, err
+}
+func (f detailedRecoverFunc) RecoverExpiredDetailed(ctx context.Context) (int, int, error) {
+	return f(ctx)
+}
+
+func TestReaperCountsCommittedRecoveryResults(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	metrics, err := telemetry.NewMetrics()
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		RunReaper(ctx, detailedRecoverFunc(func(context.Context) (int, int, error) {
+			cancel()
+			return 3, 1, nil
+		}), time.Second, metrics)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("reaper did not stop after committed recovery")
+	}
+	recorder := httptest.NewRecorder()
+	metrics.Handler().ServeHTTP(recorder, httptest.NewRequest("GET", "/metrics", nil))
+	got := recorder.Body.String()
+	for _, want := range []string{`webhook_attempts_total{outcome="unconfirmed"} 3`, `webhook_deliveries_total{result="dead"} 1`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("recovery metrics missing %q:\n%s", want, got)
+		}
+	}
+}
 
 func TestReaperWhileWorkerBusyAndCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -23,7 +66,7 @@ func TestReaperWhileWorkerBusyAndCancellation(t *testing.T) {
 	f := finalizeFunc(func(context.Context, ClaimedDelivery, SendResult) (FinalizationResult, error) {
 		return FinalizationResult{}, nil
 	})
-	w, e := NewWorker(claims, f, sender, WorkerOptions{1, time.Millisecond, time.Second, time.Second})
+	w, e := NewWorker(claims, f, sender, WorkerOptions{Concurrency: 1, PollInterval: time.Millisecond, FinalizeTimeout: time.Second, ShutdownTimeout: time.Second})
 	if e != nil {
 		t.Fatal(e)
 	}

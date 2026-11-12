@@ -2,7 +2,7 @@
 
 A local backend project for accepting events, delivering signed webhooks to independent destinations, recovering abandoned work, and replaying exhausted deliveries.
 
-The backend is implemented through **Task 19**, with a subsequent correctness review and regression fixes. **Tasks 20–22 add a memory-only authenticated dashboard, stable event pagination, per-destination delivery timelines, synthetic event creation, and dead-delivery replay controls**. This is a synthetic, single-operator learning project—not a production multi-tenant service.
+The backend is implemented through **Task 23**, with a subsequent correctness review and regression fixes. **Tasks 20–22 add a memory-only authenticated dashboard, stable event pagination, per-destination delivery timelines, synthetic event creation, and dead-delivery replay controls**. This is a synthetic, single-operator learning project—not a production multi-tenant service.
 
 ## What it does
 
@@ -26,6 +26,7 @@ The central question is: **what if a receiver commits its work, but the sender n
 - **Audited replay:** authenticated, idempotent replay starts a fresh cycle for a dead delivery while preserving its operation ID, body, destination snapshots, and lifetime attempt history.
 - **Synthetic receivers:** signed normal-mode requests support persisted deduplication on or off. Controls use a separate token-protected listener. Scenarios support `normal`, `http_503`, `http_429` and `commit_drop_once`; the latter consumes a persisted flag and closes the connection after commit.
 - **Read API:** authenticated event list/detail expose delivery, attempt and replay history. List pagination uses timestamp/UUID cursors.
+- **Bounded observability:** JSON logs retain allowlisted fields and fixed error codes; private Prometheus endpoints expose bounded ingest/attempt counters, declared histograms, and tenant-scoped queue gauges. Runtime counters are not the durable audit record; see [observability details](docs/observability.md).
 
 Defaults: worker concurrency 4, HTTP deadline 5 seconds, lease 30 seconds, lease recovery tick 1 second. Destinations are fixed. API and control tokens come from local configuration.
 
@@ -35,7 +36,7 @@ Real PostgreSQL and HTTP/process tests cover concurrency, rollback, signing, ind
 
 Recover an outage scenario using authenticated `PATCH /control/scenarios/{id}` with `{"mode":"normal"}`. Dedupe cannot change; a consumed drop cannot be rearmed. HTTP 503/429 modes record rejection before effects and return `Retry-After: 2`.
 
-The dashboard currently provides token entry/logout, a local API connection status, configured destination codes, cursor-paginated events, event detail, synthetic `order.confirmed` creation, and replay for dead deliveries. Create retries preserve the serialized request bytes and idempotency key after an uncertain response; editing a field starts a new request identity. Replay status says when work is scheduled, not delivered, and a 409 reloads current delivery state. Payloads render as escaped text and uncertainty remains visible. The token exists only in page memory, so a refresh requires re-entry. Creating a scenario still uses `democtl`; the browser does not change receiver controls or accept arbitrary destination URLs. Docker Compose currently runs PostgreSQL; the API, worker and two receivers run separately on the host. Full Compose runtime, full scripted demo, metrics, benchmarks and the final release audit are not complete. There are no measured throughput, adoption or production-readiness claims.
+The dashboard currently provides token entry/logout, a local API connection status, configured destination codes, cursor-paginated events, event detail, synthetic `order.confirmed` creation, and replay for dead deliveries. Create retries preserve the serialized request bytes and idempotency key after an uncertain response; editing a field starts a new request identity. Replay status says when work is scheduled, not delivered, and a 409 reloads current delivery state. Payloads render as escaped text and uncertainty remains visible. The token exists only in page memory, so a refresh requires re-entry. Creating a scenario still uses `democtl`; the browser does not change receiver controls or accept arbitrary destination URLs. Docker Compose currently runs PostgreSQL; the API, worker and two receivers run separately on the host. Full Compose runtime, full scripted demo, benchmarks and the final release audit are not complete. There are no measured throughput, adoption or production-readiness claims.
 
 ## Stack and prerequisites
 
@@ -87,10 +88,14 @@ RUN_MODE=host ./bin/worker
 | Process | Host address |
 |---|---|
 | API | `127.0.0.1:8080` |
+| API metrics | `127.0.0.1:9090/metrics` |
 | Fulfillment webhook / controls | `127.0.0.1:8082` / `127.0.0.1:9092` |
 | Notification webhook / controls | `127.0.0.1:8083` / `127.0.0.1:9093` |
+| Worker metrics | `127.0.0.1:9091/metrics` |
 
 The API exposes `/health/live` and `/health/ready`. Receiver controls require `DEMO_CONTROL_TOKEN`, including control readiness; they are not served on webhook ports.
+
+Inspect process-local metrics with `curl -fsS http://127.0.0.1:9090/metrics` for the API and `curl -fsS http://127.0.0.1:9091/metrics` for the worker. These loopback listeners are for local inspection only.
 
 Run the dashboard in another terminal after the API is listening on `127.0.0.1:8080`:
 

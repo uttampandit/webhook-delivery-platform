@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log/slog"
 	"time"
+
+	"github.com/uttampandit/webhook-delivery-platform/internal/telemetry"
 )
 
 type Claimer interface {
@@ -19,6 +21,7 @@ type Sender interface {
 type WorkerOptions struct {
 	Concurrency                                    int
 	PollInterval, FinalizeTimeout, ShutdownTimeout time.Duration
+	Metrics                                        *telemetry.Metrics
 }
 type Worker struct {
 	claims    Claimer
@@ -54,17 +57,20 @@ func (w *Worker) Run(ctx context.Context) error {
 		slots := w.options.Concurrency - active
 		claims, err := w.claims.ClaimDue(ctx, slots)
 		if err != nil {
-			slog.ErrorContext(ctx, "worker claim failed")
+			slog.ErrorContext(ctx, "worker claim failed", "error_code", "claim_failed")
 			return
 		}
 		if ctx.Err() != nil {
 			return
 		}
 		if len(claims) > slots {
-			slog.ErrorContext(ctx, "worker rejected claim batch exceeding free slots")
+			slog.ErrorContext(ctx, "worker rejected claim batch exceeding free slots", "error_code", "claim_batch_overflow")
 			return
 		}
 		for _, c := range claims {
+			if w.options.Metrics != nil {
+				w.options.Metrics.ObserveQueueDelay(c.StartedAt.Sub(c.ScheduledAt))
+			}
 			active++
 			go func(c ClaimedDelivery) {
 				testCheckpoint("after_claim_commit", c)
@@ -72,8 +78,26 @@ func (w *Worker) Run(ctx context.Context) error {
 				testCheckpoint("after_send_before_finalize", c)
 				cleanup, cancel := context.WithTimeout(context.Background(), w.options.FinalizeTimeout)
 				defer cancel()
-				if _, err := w.finalizer.Finalize(cleanup, c, result); err != nil {
-					slog.ErrorContext(cleanup, "worker finalization failed")
+				finalized, err := w.finalizer.Finalize(cleanup, c, result)
+				if err != nil {
+					if errors.Is(err, ErrStaleFinalization) {
+						if w.options.Metrics != nil {
+							w.options.Metrics.ObserveStaleFinalization()
+						}
+						slog.InfoContext(cleanup, "stale finalization rejected", "worker_id", "worker", "event_id", c.EventID, "delivery_id", c.DeliveryID, "attempt_id", c.AttemptID, "cycle_no", c.CycleNo, "attempt_no", c.AttemptNo, "generation", c.Generation, "error_code", "stale_finalization")
+					} else {
+						slog.ErrorContext(cleanup, "worker finalization failed", "worker_id", "worker", "event_id", c.EventID, "delivery_id", c.DeliveryID, "attempt_id", c.AttemptID, "cycle_no", c.CycleNo, "attempt_no", c.AttemptNo, "generation", c.Generation, "error_code", "finalization_failed")
+					}
+				} else if w.options.Metrics != nil {
+					w.options.Metrics.ObserveAttempt(string(finalized.Outcome))
+					if finalized.Status == "succeeded" {
+						w.options.Metrics.ObserveDelivery("succeeded")
+						if finalized.DeliveryLatencyObserved {
+							w.options.Metrics.ObserveDeliveryLatency(finalized.DeliveryLatency)
+						}
+					} else if finalized.Status == "dead" {
+						w.options.Metrics.ObserveDelivery("dead")
+					}
 				}
 				done <- struct{}{}
 			}(c)

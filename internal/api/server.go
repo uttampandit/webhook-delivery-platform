@@ -12,6 +12,7 @@ import (
 
 	"github.com/uttampandit/webhook-delivery-platform/internal/config"
 	"github.com/uttampandit/webhook-delivery-platform/internal/store"
+	"github.com/uttampandit/webhook-delivery-platform/internal/telemetry"
 )
 
 type Repository interface {
@@ -28,14 +29,30 @@ type Server struct {
 	settings   config.Settings
 	repository Repository
 	registry   config.Registry
+	metrics    *telemetry.Metrics
 }
 
 func NewHandler(settings config.Settings, repository Repository) http.Handler {
-	server := &Server{settings: settings, repository: repository, registry: settings.Registry()}
+	return NewHandlerWithMetrics(settings, repository, nil)
+}
+
+func NewHandlerWithMetrics(settings config.Settings, repository Repository, metrics *telemetry.Metrics) http.Handler {
+	server := &Server{settings: settings, repository: repository, registry: settings.Registry(), metrics: metrics}
 	return requestIDMiddleware(server)
 }
 
 func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if server.metrics != nil && r.URL.Path == "/v1/events" && r.Method == http.MethodPost {
+		started := time.Now()
+		tracked := &ingestResponseWriter{ResponseWriter: w}
+		server.serveHTTP(tracked, r)
+		server.metrics.ObserveIngest(ingestResultFromStatus(tracked.statusCode()), time.Since(started))
+		return
+	}
+	server.serveHTTP(w, r)
+}
+
+func (server *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/health/live":
 		if r.Method != http.MethodGet {
@@ -113,6 +130,48 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writeError(w, r, codeNotFound)
 }
 
+type ingestResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (writer *ingestResponseWriter) WriteHeader(status int) {
+	if writer.status != 0 {
+		return
+	}
+	writer.status = status
+	writer.ResponseWriter.WriteHeader(status)
+}
+
+func (writer *ingestResponseWriter) Write(body []byte) (int, error) {
+	if writer.status == 0 {
+		writer.WriteHeader(http.StatusOK)
+	}
+	return writer.ResponseWriter.Write(body)
+}
+
+func (writer *ingestResponseWriter) statusCode() int {
+	if writer.status == 0 {
+		return http.StatusOK
+	}
+	return writer.status
+}
+
+func ingestResultFromStatus(status int) string {
+	switch status {
+	case http.StatusAccepted:
+		return "accepted"
+	case http.StatusOK:
+		return "deduplicated"
+	case http.StatusConflict:
+		return "conflict"
+	case http.StatusBadRequest, http.StatusUnauthorized, http.StatusRequestEntityTooLarge:
+		return "invalid"
+	default:
+		return "error"
+	}
+}
+
 type destinationsResponse struct {
 	Items []destinationResponse `json:"items"`
 }
@@ -164,7 +223,7 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 		}
 		w.Header().Set("X-Request-Id", requestID)
 		r = r.WithContext(context.WithValue(r.Context(), requestIDContextKey{}, requestID))
-		slog.InfoContext(r.Context(), "http request", "request_id", requestID, "method", r.Method, "path", r.URL.Path)
+		slog.InfoContext(r.Context(), "http request", "request_id", requestID)
 		next.ServeHTTP(w, r)
 	})
 }

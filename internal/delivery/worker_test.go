@@ -62,7 +62,7 @@ func TestWorkerCapacityAndFreshShutdownContext(t *testing.T) {
 		finalized <- struct{}{}
 		return FinalizationResult{}, nil
 	})
-	w, err := NewWorker(claims, finalizer, sender, WorkerOptions{4, time.Millisecond, time.Second, time.Second})
+	w, err := NewWorker(claims, finalizer, sender, WorkerOptions{Concurrency: 4, PollInterval: time.Millisecond, FinalizeTimeout: time.Second, ShutdownTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestWorkerNeverSendsAfterClaimError(t *testing.T) {
 	w, err := NewWorker(claims, finalizeFunc(func(context.Context, ClaimedDelivery, SendResult) (FinalizationResult, error) {
 		t.Error("unexpected finalization")
 		return FinalizationResult{}, nil
-	}), sendFunc(func(context.Context, ClaimedDelivery) SendResult { sends.Add(1); return SendResult{} }), WorkerOptions{1, time.Millisecond, time.Second, time.Second})
+	}), sendFunc(func(context.Context, ClaimedDelivery) SendResult { sends.Add(1); return SendResult{} }), WorkerOptions{Concurrency: 1, PollInterval: time.Millisecond, FinalizeTimeout: time.Second, ShutdownTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestWorkerRefillsOnlyNewlyFreeSlot(t *testing.T) {
 	finalizer := finalizeFunc(func(context.Context, ClaimedDelivery, SendResult) (FinalizationResult, error) {
 		return FinalizationResult{}, nil
 	})
-	worker, err := NewWorker(claims, finalizer, sender, WorkerOptions{4, time.Millisecond, time.Second, time.Second})
+	worker, err := NewWorker(claims, finalizer, sender, WorkerOptions{Concurrency: 4, PollInterval: time.Millisecond, FinalizeTimeout: time.Second, ShutdownTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}

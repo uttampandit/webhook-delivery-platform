@@ -5,6 +5,7 @@
 *.md
 !/README.md
 !/docs/verification-matrix.md
+!/docs/observability.md
 !/learning/PROJECT_EXPLAINED.md
 !/learning/WALKTHROUGH.md
 !/learning/EXERCISES.md
