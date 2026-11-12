@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+state/.compose-smoke-event.json
 *.md
 !/README.md
 !/docs/verification-matrix.md

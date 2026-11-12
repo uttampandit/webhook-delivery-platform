@@ -1,20 +1,179 @@
+x-app-image: &app-image
+  image: webhook-platform:local
+  build:
+    context: .
+    dockerfile: Dockerfile
+
+x-runtime-settings: &runtime-settings
+  RUN_MODE: compose
+  WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+  WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-250ms}
+  LEASE_DURATION: ${LEASE_DURATION:-30s}
+  LEASE_MARGIN: ${LEASE_MARGIN:-5s}
+  HTTP_TIMEOUT: ${HTTP_TIMEOUT:-5s}
+  REAPER_INTERVAL: ${REAPER_INTERVAL:-1s}
+  DB_STATEMENT_TIMEOUT: ${DB_STATEMENT_TIMEOUT:-3s}
+
+x-compose-database-url: &compose-database-url "postgres://${POSTGRES_USER:-webhook}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/webhook_compose_dev?sslmode=disable"
+
 services:
   postgres:
     image: postgres:17.11-bookworm
     environment:
       POSTGRES_DB: webhook_dev
-      POSTGRES_USER: webhook
+      POSTGRES_USER: ${POSTGRES_USER:-webhook}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${PG_HOST_PORT:-5432}:5432"
     volumes:
       - webhook-postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 2s
       timeout: 3s
-      retries: 15
+      retries: 30
       start_period: 5s
+    restart: unless-stopped
+    stop_grace_period: 15s
+    networks: [webhook-internal, webhook-host]
+
+  init-compose-db:
+    image: postgres:17.11-bookworm
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-webhook}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      PGDATABASE: postgres
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        if ! psql -tA -c "SELECT 1 FROM pg_database WHERE datname = 'webhook_compose_dev'" | grep -qx 1; then
+          createdb webhook_compose_dev
+        fi
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [webhook-internal]
+
+  migrate:
+    <<: *app-image
+    entrypoint: ["/app/migrate"]
+    command: ["--dir", "/app/migrations"]
+    environment:
+      <<: *runtime-settings
+      DATABASE_URL: *compose-database-url
+    depends_on:
+      init-compose-db:
+        condition: service_completed_successfully
+    restart: "no"
+    networks: [webhook-internal]
+
+  seed:
+    <<: *app-image
+    entrypoint: ["/app/seed"]
+    environment:
+      <<: *runtime-settings
+      DATABASE_URL: *compose-database-url
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+    networks: [webhook-internal]
+
+  api:
+    <<: *app-image
+    environment:
+      <<: *runtime-settings
+      DATABASE_URL: *compose-database-url
+      API_TOKEN: ${API_TOKEN:?Set API_TOKEN in .env}
+      DEMO_CONTROL_TOKEN: ${DEMO_CONTROL_TOKEN:?Set DEMO_CONTROL_TOKEN in .env}
+      WEB_STATIC_DIR: /app/web
+    ports:
+      - "127.0.0.1:${API_HOST_PORT:-8080}:8080"
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "--output", "/dev/null", "http://127.0.0.1:8080/health/ready"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    restart: unless-stopped
+    stop_grace_period: 7s
+    networks: [webhook-internal, webhook-host]
+
+  worker:
+    <<: *app-image
+    entrypoint: ["/app/worker"]
+    environment:
+      <<: *runtime-settings
+      DATABASE_URL: *compose-database-url
+      FULFILLMENT_SIGNING_KEY_V1: ${FULFILLMENT_SIGNING_KEY_V1:?Set FULFILLMENT_SIGNING_KEY_V1 in .env}
+      NOTIFICATION_SIGNING_KEY_V1: ${NOTIFICATION_SIGNING_KEY_V1:?Set NOTIFICATION_SIGNING_KEY_V1 in .env}
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--output", "/dev/null", "http://127.0.0.1:9090/metrics"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    restart: unless-stopped
+    stop_grace_period: 12s
+    networks: [webhook-internal]
+
+  fulfillment:
+    <<: *app-image
+    entrypoint: ["/app/receiver"]
+    environment:
+      <<: *runtime-settings
+      DATABASE_URL: *compose-database-url
+      DEMO_CONTROL_TOKEN: ${DEMO_CONTROL_TOKEN:?Set DEMO_CONTROL_TOKEN in .env}
+      FULFILLMENT_SIGNING_KEY_V1: ${FULFILLMENT_SIGNING_KEY_V1:?Set FULFILLMENT_SIGNING_KEY_V1 in .env}
+      RECEIVER_CODE: fulfillment
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --output /dev/null --header \"Authorization: Bearer $$DEMO_CONTROL_TOKEN\" http://127.0.0.1:9091/health/ready"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    restart: unless-stopped
+    stop_grace_period: 7s
+    networks: [webhook-internal]
+
+  notification:
+    <<: *app-image
+    entrypoint: ["/app/receiver"]
+    environment:
+      <<: *runtime-settings
+      DATABASE_URL: *compose-database-url
+      DEMO_CONTROL_TOKEN: ${DEMO_CONTROL_TOKEN:?Set DEMO_CONTROL_TOKEN in .env}
+      NOTIFICATION_SIGNING_KEY_V1: ${NOTIFICATION_SIGNING_KEY_V1:?Set NOTIFICATION_SIGNING_KEY_V1 in .env}
+      RECEIVER_CODE: notification
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --output /dev/null --header \"Authorization: Bearer $$DEMO_CONTROL_TOKEN\" http://127.0.0.1:9091/health/ready"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    restart: unless-stopped
+    stop_grace_period: 7s
+    networks: [webhook-internal]
 
 volumes:
   webhook-postgres-data:
+
+networks:
+  webhook-internal:
+    internal: true
+  webhook-host:
+    driver: bridge

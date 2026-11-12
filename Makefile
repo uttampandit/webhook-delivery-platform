@@ -1,7 +1,7 @@
 GO ?= go
 NPM ?= npm
 
-.PHONY: doctor build test test-race test-integration test-crash vet web-check web-api-smoke init-env seed up down
+.PHONY: doctor build test test-race test-integration test-crash vet web-check web-api-smoke compose-smoke init-env seed up down
 
 doctor:
 	@sh ./scripts/doctor.sh
@@ -9,6 +9,7 @@ doctor:
 build:
 	mkdir -p bin
 	$(GO) build -o bin/ ./...
+	docker build -t webhook-platform:local .
 
 test:
 	$(GO) test ./...
@@ -39,6 +40,9 @@ web-check:
 web-api-smoke:
 	sh ./scripts/web-api-smoke.sh
 
+compose-smoke:
+	python3 ./scripts/compose-smoke.py
+
 init-env:
 	sh ./scripts/init-env.sh
 
@@ -50,7 +54,7 @@ seed:
 	@set -a; . ./.env; set +a; $(GO) run ./cmd/seed
 
 up:
-	docker compose up -d postgres
+	sh ./scripts/compose-up.sh
 
 down:
-	docker compose down
+	docker compose down --timeout 15

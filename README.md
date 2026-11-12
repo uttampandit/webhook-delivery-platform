@@ -2,7 +2,7 @@
 
 A local backend project for accepting events, delivering signed webhooks to independent destinations, recovering abandoned work, and replaying exhausted deliveries.
 
-The backend is implemented through **Task 23**, with a subsequent correctness review and regression fixes. **Tasks 20–22 add a memory-only authenticated dashboard, stable event pagination, per-destination delivery timelines, synthetic event creation, and dead-delivery replay controls**. This is a synthetic, single-operator learning project—not a production multi-tenant service.
+The backend is implemented through **Task 24**, with a subsequent correctness review and regression fixes. **Tasks 20–22 add a memory-only authenticated dashboard, stable event pagination, per-destination delivery timelines, synthetic event creation, and dead-delivery replay controls**. This is a synthetic, single-operator learning project—not a production multi-tenant service.
 
 ## What it does
 
@@ -36,7 +36,7 @@ Real PostgreSQL and HTTP/process tests cover concurrency, rollback, signing, ind
 
 Recover an outage scenario using authenticated `PATCH /control/scenarios/{id}` with `{"mode":"normal"}`. Dedupe cannot change; a consumed drop cannot be rearmed. HTTP 503/429 modes record rejection before effects and return `Retry-After: 2`.
 
-The dashboard currently provides token entry/logout, a local API connection status, configured destination codes, cursor-paginated events, event detail, synthetic `order.confirmed` creation, and replay for dead deliveries. Create retries preserve the serialized request bytes and idempotency key after an uncertain response; editing a field starts a new request identity. Replay status says when work is scheduled, not delivered, and a 409 reloads current delivery state. Payloads render as escaped text and uncertainty remains visible. The token exists only in page memory, so a refresh requires re-entry. Creating a scenario still uses `democtl`; the browser does not change receiver controls or accept arbitrary destination URLs. Docker Compose currently runs PostgreSQL; the API, worker and two receivers run separately on the host. Full Compose runtime, full scripted demo, benchmarks and the final release audit are not complete. There are no measured throughput, adoption or production-readiness claims.
+The dashboard provides token entry/logout, a local API connection status, configured destination codes, cursor-paginated events, event detail, synthetic `order.confirmed` creation, and replay for dead deliveries. Create retries preserve the serialized request bytes and idempotency key after an uncertain response; editing a field starts a new request identity. Replay status says when work is scheduled, not delivered, and a 409 reloads current delivery state. Payloads render as escaped text and uncertainty remains visible. The token exists only in page memory, so a refresh requires re-entry. Creating a scenario still uses `democtl`; the browser does not change receiver controls or accept arbitrary destination URLs. The full local Compose runtime serves the built UI and keeps receiver/control/metrics listeners on the internal network. Task 25 choreography, benchmarks, and the final release audit remain incomplete. There are no measured throughput, adoption or production-readiness claims.
 
 ## Stack and prerequisites
 
@@ -46,156 +46,57 @@ Use the repository's pinned tools: Go **1.27.3** (module language 1.27), Node **
 
 ## Run locally
 
-Start Docker first. From the repository root, initialize private configuration once:
+Start Docker, then initialize private configuration once and start the full Compose runtime:
 
 ```sh
 make init-env
 make up
-set -a; . ./.env; set +a
-export RUN_MODE=host
-
-go run ./cmd/migrate --dir migrations
-go run ./cmd/seed
-make build
 ```
 
-If `.env` already exists, keep it and skip `make init-env`; the helper refuses to overwrite it. It generates random secrets locally. Never commit `.env` or substitute public test-fixture keys for runtime keys.
+If `.env` already exists, keep it and skip `make init-env`; the helper refuses to overwrite it. Compose builds the application image, waits for PostgreSQL health, applies migrations, seeds fixed destinations, and then waits for the API, worker, and both synthetic receivers. Open [http://127.0.0.1:8080](http://127.0.0.1:8080) and enter the `API_TOKEN` from `.env`; the dashboard keeps it in page memory only. Never commit `.env` or paste credentials into commands, URLs, or reports.
 
-The commands above seed the **host-mode** destination registry. Existing destination URLs/key references are immutable: if an existing database was seeded in another mode, seeding detects drift rather than overwriting it. Keep the original mode or use a separate development instance.
-
-Open four terminals. In **each**, first load configuration:
-
-```sh
-set -a; . ./.env; set +a
-```
-
-Then start one process per terminal:
-
-```sh
-# Terminal 1
-RUN_MODE=host ./bin/api
-
-# Terminal 2
-RUN_MODE=host RECEIVER_CODE=fulfillment ./bin/receiver
-
-# Terminal 3
-RUN_MODE=host RECEIVER_CODE=notification ./bin/receiver
-
-# Terminal 4
-RUN_MODE=host ./bin/worker
-```
-
-| Process | Host address |
-|---|---|
-| API | `127.0.0.1:8080` |
-| API metrics | `127.0.0.1:9090/metrics` |
-| Fulfillment webhook / controls | `127.0.0.1:8082` / `127.0.0.1:9092` |
-| Notification webhook / controls | `127.0.0.1:8083` / `127.0.0.1:9093` |
-| Worker metrics | `127.0.0.1:9091/metrics` |
-
-The API exposes `/health/live` and `/health/ready`. Receiver controls require `DEMO_CONTROL_TOKEN`, including control readiness; they are not served on webhook ports.
-
-Inspect process-local metrics with `curl -fsS http://127.0.0.1:9090/metrics` for the API and `curl -fsS http://127.0.0.1:9091/metrics` for the worker. These loopback listeners are for local inspection only.
-
-Run the dashboard in another terminal after the API is listening on `127.0.0.1:8080`:
-
-```sh
-cd web
-npm ci
-npm run dev
-```
-
-Open the local Vite URL and enter the API token configured on the server. The development proxy forwards `/v1` requests to the local API; no token is compiled into the frontend.
-
-Backend contract tests and their limits are mapped in [the verification matrix](docs/verification-matrix.md). Run `make test` and `make test-race` for unit checks, `make test-integration` for real PostgreSQL tests, and `make test-crash` for actual worker death and lease recovery. Integration targets require `TEST_DATABASE_ADMIN_URL` to connect to PostgreSQL's `postgres` maintenance database so each test can create and drop its own guarded database.
-
-With Docker Compose PostgreSQL running and the local `.env` available, `make web-api-smoke` creates a disposable `webhook_test_task22_*` database, starts the real API with a temporary token, creates an event, prepares one delivery as dead in that isolated database, and verifies that replay schedules cycle 2. The command drops its test database and stops its API process on exit; it does not start workers or receivers.
-
-## Internal demo commands
-
-After loading `.env` and starting the four host processes above, use `RUN_MODE=host ./bin/democtl`. Credentials come from the environment; do not put them in flags or recordings.
-
-```sh
-RUN_MODE=host ./bin/democtl scenario create --id walkthrough --receiver both --mode normal --dedupe on
-# Copy the returned fresh scenario_id into the next commands.
-RUN_MODE=host ./bin/democtl publish --scenario <scenario_id> --order order_1001 --destinations fulfillment,notification
-RUN_MODE=host ./bin/democtl wait --event <event_id> --state succeeded --timeout 90s
-RUN_MODE=host ./bin/democtl scenario inspect --id <scenario_id> --receiver both
-RUN_MODE=host ./bin/democtl scenario recover --id <scenario_id> --receiver fulfillment
-RUN_MODE=host ./bin/democtl replay --delivery <dead_delivery_id> --key replay_request_1
-```
-
-Creation appends a random suffix, so repeating the base name creates a fresh scenario without deleting data. Repeat the same publish flags for a retry: deterministic bytes produce the same idempotency key. For an exact saved request, use `publish --file request.json --key request_1`; the file's bytes are preserved. Change the scenario/order or explicit key for a new event. Replay always requires an explicit nonsecret request key. Wait checks every delivery and exits nonzero with its last validated statuses on timeout. Full `run` choreography and saved run reports arrive in Task 25.
-
-## Send an order event
-
-In another terminal, load `.env` and create a normal scenario on both receivers:
-
-```sh
-set -a; . ./.env; set +a
-
-for port in 9092 9093; do
-  curl -i -X POST "http://127.0.0.1:$port/control/scenarios" \
-    -H "Authorization: Bearer $DEMO_CONTROL_TOKEN" \
-    -H "Content-Type: application/json" \
-    --data '{"scenario_id":"walkthrough_1","mode":"normal","dedupe_enabled":true}'
-done
-```
-
-Create the event with both fixed destinations:
-
-```sh
-curl -i -X POST http://127.0.0.1:8080/v1/events \
-  -H "Authorization: Bearer $API_TOKEN" \
-  -H "Idempotency-Key: walkthrough-order-1001" \
-  -H "Content-Type: application/json" \
-  --data '{"type":"order.confirmed","payload":{"scenario_id":"walkthrough_1","order_id":"order_1001","quantity":1},"destination_ids":["00000000-0000-4000-8000-000000000101","00000000-0000-4000-8000-000000000102"]}'
-```
-
-HTTP 202 means durable acceptance, not completed delivery. Resending the exact body/key returns the original IDs with HTTP 200 and `deduplicated:true`. Changing the bytes under that key returns 409. Use fresh scenario IDs and ingest keys for separate experiments; no reset/delete endpoint is provided.
-
-Inspect events:
-
-```sh
-curl -i 'http://127.0.0.1:8080/v1/events?limit=20' \
-  -H "Authorization: Bearer $API_TOKEN"
-
-curl -i http://127.0.0.1:9092/control/scenarios/walkthrough_1 \
-  -H "Authorization: Bearer $DEMO_CONTROL_TOKEN"
-```
-
-| API route | Purpose |
-|---|---|
-| `GET /v1/destinations` | Fixed destination IDs/codes |
-| `GET /v1/events?limit=20&cursor=…` | Compact event summaries with cursor pagination |
-| `GET /v1/events/{event_id}` | Payload, delivery states, attempts and replay audit |
-| `POST /v1/deliveries/{delivery_id}/replay` | Replay a dead delivery using `Idempotency-Key` and body `{}` |
-
-All `/v1` routes require the API bearer token. A new replay returns 202; a duplicate key/target returns 200 with its original replay identity/cycle. Replay of a pending, in-flight or succeeded delivery returns 409. Replay can repeat external effects, so receiver deduplication still matters.
-
-Stop host processes with Ctrl+C, then stop PostgreSQL:
+Compose seeds a separate `webhook_compose_dev` database so it does not overwrite destination URLs already stored in the older `webhook_dev` host-mode database. Both databases live in the same named PostgreSQL volume. To stop the normal local runtime while keeping data, run:
 
 ```sh
 make down
 ```
 
-This removes the container/network and retains the named data volume.
+`make down` removes containers and the network but retains the named volume. `docker compose down -v` deletes that volume and its databases; use it only when you intend to discard local data.
+
+## Internal demo commands
+
+`democtl` is included in the API image and receives credentials through the container environment. Create a fresh scenario, publish an event, and inspect receiver effects with:
+
+```sh
+docker compose exec -T api /app/democtl scenario create --id walkthrough --receiver both --mode normal --dedupe on
+# Copy the returned fresh scenario_id into the next commands.
+docker compose exec -T api /app/democtl publish --scenario <scenario_id> --order order_1001 --destinations fulfillment,notification
+docker compose exec -T api /app/democtl wait --event <event_id> --state succeeded --timeout 90s
+docker compose exec -T api /app/democtl scenario inspect --id <scenario_id> --receiver both
+docker compose exec -T api /app/democtl scenario recover --id <scenario_id> --receiver fulfillment
+docker compose exec -T api /app/democtl replay --delivery <dead_delivery_id> --key replay_request_1
+```
+
+Creation appends a random suffix, so repeating the base name creates a fresh scenario without deleting data. Repeat the same publish flags for a retry: deterministic bytes produce the same idempotency key. For an exact saved request, use `publish --file request.json --key request_1`; the file's bytes are preserved. Change the scenario/order or explicit key for a new event. Replay always requires an explicit nonsecret request key. Wait checks every delivery and exits nonzero with its last validated statuses on timeout. Full `run` choreography and saved run reports arrive in Task 25.
 
 ## Verification
 
 ```sh
 make doctor
+cd web && npm ci && cd ..
 make build
+make up
+make compose-smoke
+make down
+make up
+make compose-smoke
+make web-check
 make test
 make test-race
 make vet
 
 # With Docker/PostgreSQL running and .env loaded:
 make test-integration
-
-# Dashboard shell and frontend checks:
-cd web && npm ci && cd ..
-make web-check
 ```
 
 Integration tests require `TEST_DATABASE_ADMIN_URL` pointing to the PostgreSQL `postgres` maintenance database with database creation/drop privileges. The guarded harness creates and removes isolated `webhook_test_<hex>` databases; it does not run application tests against the development database. No SQLite substitute is used for PostgreSQL locking behavior.

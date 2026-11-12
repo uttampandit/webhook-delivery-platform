@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -107,12 +109,20 @@ func newHTTPServer(settings config.Settings, repository api.Repository, metrics 
 	}
 	return &http.Server{
 		Addr:              address,
-		Handler:           api.NewHandlerWithMetrics(settings, repository, metrics),
+		Handler:           api.WithStaticUI(api.NewHandlerWithMetrics(settings, repository, metrics), staticFiles()),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+}
+
+func staticFiles() fs.FS {
+	directory := os.Getenv("WEB_STATIC_DIR")
+	if directory == "" {
+		directory = filepath.Join("web", "dist")
+	}
+	return os.DirFS(directory)
 }
 
 func newMetricsServer(settings config.Settings, handler http.Handler) *http.Server {
