@@ -2,7 +2,7 @@
 
 A local backend project for accepting events, delivering signed webhooks to independent destinations, recovering abandoned work, and replaying exhausted deliveries.
 
-The backend is implemented through **Task 19**, with a subsequent correctness review and regression fixes. **Task 20 adds the dashboard shell and memory-only API authentication**; event views and the full release workflow are still planned. This is a synthetic, single-operator learning project—not a production multi-tenant service.
+The backend is implemented through **Task 19**, with a subsequent correctness review and regression fixes. **Tasks 20–21 add a memory-only authenticated dashboard, stable event pagination, and per-destination delivery timelines**; create/replay controls and the full release workflow are still planned. This is a synthetic, single-operator learning project—not a production multi-tenant service.
 
 ## What it does
 
@@ -35,7 +35,7 @@ Real PostgreSQL and HTTP/process tests cover concurrency, rollback, signing, ind
 
 Recover an outage scenario using authenticated `PATCH /control/scenarios/{id}` with `{"mode":"normal"}`. Dedupe cannot change; a consumed drop cannot be rearmed. HTTP 503/429 modes record rejection before effects and return `Retry-After: 2`.
 
-The dashboard currently provides token entry/logout, a local API connection status, and the configured destination codes. The token exists only in page memory, so a refresh requires re-entry. Event lists and details are still planned. Docker Compose currently runs PostgreSQL; the API, worker and two receivers run separately on the host. Full Compose runtime, full scripted demo, metrics, benchmarks and the final release audit are not complete. There are no measured throughput, adoption or production-readiness claims.
+The dashboard currently provides token entry/logout, a local API connection status, configured destination codes, cursor-paginated events, and event detail with independent delivery histories, attempts and replay audit. Payloads render as escaped text and uncertainty remains visible across later attempts. The token exists only in page memory, so a refresh requires re-entry. Create/replay controls are still planned. Docker Compose currently runs PostgreSQL; the API, worker and two receivers run separately on the host. Full Compose runtime, full scripted demo, metrics, benchmarks and the final release audit are not complete. There are no measured throughput, adoption or production-readiness claims.
 
 ## Stack and prerequisites
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-export type PollingStatus = "idle" | "paused" | "polling" | "disconnected";
+export type PollingStatus = "idle" | "paused" | "polling" | "connected" | "disconnected";
 export type PollTask = (signal: AbortSignal) => Promise<void>;
 
 export function useVisiblePolling(
@@ -56,6 +56,7 @@ export function useVisiblePolling(
           .then(() => {
             if (currentController.signal.aborted) return;
             failures = 0;
+            setStatus("connected");
             schedule(intervalMs);
           })
           .catch(() => {

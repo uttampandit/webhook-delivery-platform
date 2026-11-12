@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { apiClient } from "./api/apiClient";
 import type { DestinationDto } from "./api/dto";
 import { session } from "./auth/memorySession";
+import { EventBrowser } from "./events/EventBrowser";
 
 type LoadState = "idle" | "loading" | "loaded" | "error";
 
@@ -100,18 +101,21 @@ export default function App() {
             {loadState === "error" ? loadMessage : null}
           </p>
           {loadState === "loaded" ? (
-            <section aria-labelledby="destinations-heading" className="destination-section">
-              <h3 id="destinations-heading">Destinations</h3>
-              {destinations.length === 0 ? (
-                <p className="empty-state">No destinations are configured.</p>
-              ) : (
-                <ul className="destination-list">
-                  {destinations.map((destination) => (
-                    <li key={destination.id}>{destination.code}</li>
-                  ))}
-                </ul>
-              )}
-            </section>
+            <>
+              <section aria-labelledby="destinations-heading" className="destination-section">
+                <h3 id="destinations-heading">Destinations</h3>
+                {destinations.length === 0 ? (
+                  <p className="empty-state">No destinations are configured.</p>
+                ) : (
+                  <ul className="destination-list">
+                    {destinations.map((destination) => (
+                      <li key={destination.id}>{destination.code}</li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+              <EventBrowser />
+            </>
           ) : null}
         </section>
       ) : (
