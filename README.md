@@ -2,7 +2,7 @@
 
 A local backend project for accepting events, delivering signed webhooks to independent destinations, recovering abandoned work, and replaying exhausted deliveries.
 
-The backend is implemented through **Task 18**, with a subsequent correctness review and regression fixes. A React dashboard and the full release workflow are still planned. This is a synthetic, single-operator learning project—not a production multi-tenant service.
+The backend is implemented through **Task 19**, with a subsequent correctness review and regression fixes. A React dashboard and the full release workflow are still planned. This is a synthetic, single-operator learning project—not a production multi-tenant service.
 
 ## What it does
 
@@ -31,7 +31,7 @@ Defaults: worker concurrency 4, HTTP deadline 5 seconds, lease 30 seconds, lease
 
 ## Current limits
 
-Real PostgreSQL and HTTP/process tests cover concurrency, rollback, signing, independent fan-out, graceful SIGTERM, lease recovery, replay races and response loss. **Actual SIGKILL recovery remains a later milestone.** Real HTTP/1.1 tests now verify a socket close after committed receiver effects, deduplication on/off, and consumed flags surviving process restart. Transport read errors and timeouts do not prove that a receiver applied no effect.
+Real PostgreSQL and HTTP/process tests cover concurrency, rollback, signing, independent fan-out, graceful SIGTERM, lease recovery, replay races, response loss, and actual worker SIGKILL recovery. `make test-crash` kills child workers after claim and after receiver commit, then verifies lease recovery, attempt history, receiver deduplication, and stale-worker fencing. Release binaries ignore hook environment variables. Real HTTP/1.1 tests verify that a socket close after committed receiver effects remains uncertain to the sender; transport read errors and timeouts do not prove that a receiver applied no effect.
 
 Recover an outage scenario using authenticated `PATCH /control/scenarios/{id}` with `{"mode":"normal"}`. Dedupe cannot change; a consumed drop cannot be rearmed. HTTP 503/429 modes record rejection before effects and return `Retry-After: 2`.
 
@@ -92,7 +92,7 @@ RUN_MODE=host ./bin/worker
 
 The API exposes `/health/live` and `/health/ready`. Receiver controls require `DEMO_CONTROL_TOKEN`, including control readiness; they are not served on webhook ports.
 
-Backend contract tests and their limits are mapped in [the verification matrix](docs/verification-matrix.md). Process-crash recovery remains pending Task 19.
+Backend contract tests and their limits are mapped in [the verification matrix](docs/verification-matrix.md). Run `make test` and `make test-race` for unit checks, `make test-integration` for real PostgreSQL tests, and `make test-crash` for actual worker death and lease recovery. Integration targets require `TEST_DATABASE_ADMIN_URL` to connect to PostgreSQL's `postgres` maintenance database so each test can create and drop its own guarded database.
 
 ## Internal demo commands
 

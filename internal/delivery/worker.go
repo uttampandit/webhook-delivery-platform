@@ -67,7 +67,9 @@ func (w *Worker) Run(ctx context.Context) error {
 		for _, c := range claims {
 			active++
 			go func(c ClaimedDelivery) {
+				testCheckpoint("after_claim_commit", c)
 				result := w.sender.Send(sends, c)
+				testCheckpoint("after_send_before_finalize", c)
 				cleanup, cancel := context.WithTimeout(context.Background(), w.options.FinalizeTimeout)
 				defer cancel()
 				if _, err := w.finalizer.Finalize(cleanup, c, result); err != nil {

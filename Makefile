@@ -1,7 +1,7 @@
 GO ?= go
 NPM ?= npm
 
-.PHONY: doctor build test test-race test-integration vet web-check init-env seed up down
+.PHONY: doctor build test test-race test-integration test-crash vet web-check init-env seed up down
 
 doctor:
 	@sh ./scripts/doctor.sh
@@ -22,6 +22,13 @@ test-integration:
 		exit 2; \
 	fi
 	$(GO) test -tags integration ./...
+
+test-crash:
+	@if [ -z "$${TEST_DATABASE_ADMIN_URL:-}" ]; then \
+		printf '%s\n' 'TEST_DATABASE_ADMIN_URL is required; point it at the PostgreSQL postgres maintenance database with CREATEDB and DROP privileges.' >&2; \
+		exit 2; \
+	fi
+	$(GO) test -timeout 240s -tags 'integration,crash' ./tests/crash
 
 vet:
 	$(GO) vet ./...
