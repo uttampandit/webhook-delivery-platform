@@ -2,7 +2,7 @@
 
 A local backend project for accepting events, delivering signed webhooks to independent destinations, recovering abandoned work, and replaying exhausted deliveries.
 
-The backend is implemented through **Task 19**, with a subsequent correctness review and regression fixes. A React dashboard and the full release workflow are still planned. This is a synthetic, single-operator learning project—not a production multi-tenant service.
+The backend is implemented through **Task 19**, with a subsequent correctness review and regression fixes. **Task 20 adds the dashboard shell and memory-only API authentication**; event views and the full release workflow are still planned. This is a synthetic, single-operator learning project—not a production multi-tenant service.
 
 ## What it does
 
@@ -35,7 +35,7 @@ Real PostgreSQL and HTTP/process tests cover concurrency, rollback, signing, ind
 
 Recover an outage scenario using authenticated `PATCH /control/scenarios/{id}` with `{"mode":"normal"}`. Dedupe cannot change; a consumed drop cannot be rearmed. HTTP 503/429 modes record rejection before effects and return `Retry-After: 2`.
 
-The frontend is a scaffold. Docker Compose currently runs PostgreSQL; the API, worker and two receivers run separately on the host. Full Compose runtime, dashboard, full scripted demo, metrics, benchmarks and the final release audit are not complete. There are no measured throughput, adoption or production-readiness claims.
+The dashboard currently provides token entry/logout, a local API connection status, and the configured destination codes. The token exists only in page memory, so a refresh requires re-entry. Event lists and details are still planned. Docker Compose currently runs PostgreSQL; the API, worker and two receivers run separately on the host. Full Compose runtime, full scripted demo, metrics, benchmarks and the final release audit are not complete. There are no measured throughput, adoption or production-readiness claims.
 
 ## Stack and prerequisites
 
@@ -91,6 +91,16 @@ RUN_MODE=host ./bin/worker
 | Notification webhook / controls | `127.0.0.1:8083` / `127.0.0.1:9093` |
 
 The API exposes `/health/live` and `/health/ready`. Receiver controls require `DEMO_CONTROL_TOKEN`, including control readiness; they are not served on webhook ports.
+
+Run the dashboard in another terminal after the API is listening on `127.0.0.1:8080`:
+
+```sh
+cd web
+npm ci
+npm run dev
+```
+
+Open the local Vite URL and enter the API token configured on the server. The development proxy forwards `/v1` requests to the local API; no token is compiled into the frontend.
 
 Backend contract tests and their limits are mapped in [the verification matrix](docs/verification-matrix.md). Run `make test` and `make test-race` for unit checks, `make test-integration` for real PostgreSQL tests, and `make test-crash` for actual worker death and lease recovery. Integration targets require `TEST_DATABASE_ADMIN_URL` to connect to PostgreSQL's `postgres` maintenance database so each test can create and drop its own guarded database.
 
@@ -176,7 +186,7 @@ make vet
 # With Docker/PostgreSQL running and .env loaded:
 make test-integration
 
-# Frontend scaffold only:
+# Dashboard shell and frontend checks:
 cd web && npm ci && cd ..
 make web-check
 ```

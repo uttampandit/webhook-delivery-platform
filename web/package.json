@@ -9,6 +9,8 @@
   },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "lint": "biome lint src",
+    "test": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "build": "vite build"
   },
@@ -17,10 +19,16 @@
     "react-dom": "19.3.1"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.7",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.10",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.2",
+    "jsdom": "31.0.0",
     "typescript": "7.0.2",
-    "vite": "8.3.5"
+    "vite": "8.3.5",
+    "vitest": "5.1.0"
   }
 }

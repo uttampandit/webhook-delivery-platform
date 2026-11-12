@@ -1,10 +1,11 @@
 :root {
-  color: #20251f;
-  background: #f5f3ed;
+  color: #1d2925;
+  background: #f1f4f0;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  font-optical-sizing: auto;
 }
 
 * {
@@ -17,44 +18,207 @@ body {
   margin: 0;
 }
 
+button,
+input {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 3px solid #276c52;
+  outline-offset: 3px;
+}
+
 .shell {
-  width: min(100% - 3rem, 52rem);
-  margin: 12vh auto 0;
-  padding: 3rem;
-  border: 1px solid #d8d6cd;
-  border-radius: 1rem;
-  background: #fffefa;
+  width: min(100% - 2rem, 58rem);
+  margin: 0 auto;
+  padding: clamp(1.25rem, 5vw, 3.5rem) 0 2rem;
+}
+
+.topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
 .eyebrow {
-  margin: 0 0 1rem;
-  color: #52674d;
+  margin: 0 0 0.7rem;
+  color: #48645a;
   font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  font-weight: 750;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
 }
 
+h1,
+h2,
+h3,
+p {
+  overflow-wrap: anywhere;
+}
+
 h1 {
-  max-width: 14ch;
   margin: 0;
-  font-size: clamp(2rem, 6vw, 3.5rem);
+  font-size: clamp(2rem, 7vw, 3.5rem);
   letter-spacing: -0.045em;
   line-height: 1.05;
 }
 
-.status {
-  max-width: 48ch;
-  margin: 1.5rem 0 0;
-  color: #596057;
-  font-size: 1rem;
-  line-height: 1.65;
+.intro {
+  max-width: 55ch;
+  margin: 1rem 0 2rem;
+  color: #4c5c54;
+  font-size: 1.05rem;
+  line-height: 1.6;
 }
 
-@media (max-width: 540px) {
+.connect-panel,
+.workspace {
+  padding: clamp(1.25rem, 4vw, 2rem);
+  border: 1px solid #cbd7cf;
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 0.75rem 2rem rgb(24 54 42 / 5%);
+}
+
+h2 {
+  margin: 0;
+  font-size: clamp(1.25rem, 4vw, 1.65rem);
+  letter-spacing: -0.025em;
+}
+
+h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.supporting-copy,
+.status,
+.empty-state {
+  color: #506159;
+  line-height: 1.6;
+}
+
+.supporting-copy {
+  max-width: 58ch;
+  margin: 0.65rem 0 1.5rem;
+}
+
+.token-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.65rem 0.85rem;
+}
+
+.token-form label {
+  grid-column: 1 / -1;
+  font-size: 0.9rem;
+  font-weight: 650;
+}
+
+.token-form input {
+  min-width: 0;
+  min-height: 2.85rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #94a79c;
+  border-radius: 0.55rem;
+  background: #fff;
+  color: #1d2925;
+}
+
+.primary-button,
+.secondary-button {
+  min-height: 2.85rem;
+  padding: 0.65rem 1rem;
+  border: 1px solid #17553d;
+  border-radius: 0.55rem;
+  background: #17553d;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.primary-button:hover {
+  background: #103d2c;
+}
+
+.secondary-button {
+  border-color: #93a59a;
+  background: #fff;
+  color: #263e33;
+}
+
+.secondary-button:hover {
+  background: #eef4f0;
+}
+
+.notice {
+  min-height: 1.5rem;
+  margin: 0.9rem 0 0;
+  color: #8b3a2e;
+  font-size: 0.9rem;
+}
+
+.status {
+  min-height: 1.6rem;
+  margin: 0.55rem 0 1.4rem;
+}
+
+.destination-section {
+  padding-top: 1.25rem;
+  border-top: 1px solid #e2e8e3;
+}
+
+.destination-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.destination-list li {
+  padding: 0.45rem 0.7rem;
+  border: 1px solid #bdd2c5;
+  border-radius: 999px;
+  background: #f0f7f2;
+  color: #234b37;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.empty-state {
+  margin: 0.8rem 0 0;
+}
+
+.footer-note {
+  margin-top: 1.5rem;
+  color: #66756c;
+  font-size: 0.8rem;
+}
+
+@media (max-width: 520px) {
   .shell {
-    width: min(100% - 1.5rem, 52rem);
-    margin-top: 1rem;
-    padding: 1.5rem;
+    width: min(100% - 1.25rem, 58rem);
+    padding-top: 1.25rem;
+  }
+
+  .token-form {
+    grid-template-columns: 1fr;
+  }
+
+  .token-form label {
+    grid-column: auto;
+  }
+
+  .primary-button {
+    width: 100%;
+  }
+
+  .topbar {
+    align-items: center;
   }
 }

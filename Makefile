@@ -34,7 +34,7 @@ vet:
 	$(GO) vet ./...
 
 web-check:
-	cd web && $(NPM) run typecheck && $(NPM) run build
+	cd web && $(NPM) run lint && $(NPM) run typecheck && $(NPM) test -- --run && $(NPM) run build
 
 init-env:
 	sh ./scripts/init-env.sh
