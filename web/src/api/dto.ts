@@ -70,6 +70,13 @@ export type EventDetailDto = {
   deliveries: EventDeliveryDetailDto[];
 };
 
+export type EventCreateResponseDto = {
+  event_id: string;
+  deduplicated: boolean;
+  created_at: string;
+  delivery_ids: string[];
+};
+
 export type ReplayResponseDto = {
   replay_id: string;
   delivery_id: string;

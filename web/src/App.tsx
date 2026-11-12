@@ -114,7 +114,7 @@ export default function App() {
                   </ul>
                 )}
               </section>
-              <EventBrowser />
+              <EventBrowser destinations={destinations} />
             </>
           ) : null}
         </section>

@@ -30,14 +30,11 @@ describe("dashboard shell", () => {
     await user.type(tokenField, "demo-token");
     await user.click(screen.getByRole("button", { name: "Connect" }));
 
-    expect(await screen.findByText("orders")).toBeTruthy();
+    expect(await screen.findByText("orders", { selector: "li" })).toBeTruthy();
     expect(screen.queryByLabelText("API token")).toBeNull();
-    expect(fetch).toHaveBeenCalledWith(
-      "/v1/destinations",
-      expect.objectContaining({
-        headers: { Authorization: "Bearer demo-token" },
-      }),
-    );
+    expect(fetch).toHaveBeenCalledWith("/v1/destinations", expect.any(Object));
+    const destinationsRequest = vi.mocked(fetch).mock.calls.find(([path]) => path === "/v1/destinations")?.[1];
+    expect(new Headers(destinationsRequest?.headers).get("Authorization")).toBe("Bearer demo-token");
     for (const storageSpy of storageSpies) expect(storageSpy).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Log out" }));

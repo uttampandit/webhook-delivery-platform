@@ -2,7 +2,7 @@
 
 A local backend project for accepting events, delivering signed webhooks to independent destinations, recovering abandoned work, and replaying exhausted deliveries.
 
-The backend is implemented through **Task 19**, with a subsequent correctness review and regression fixes. **Tasks 20–21 add a memory-only authenticated dashboard, stable event pagination, and per-destination delivery timelines**; create/replay controls and the full release workflow are still planned. This is a synthetic, single-operator learning project—not a production multi-tenant service.
+The backend is implemented through **Task 19**, with a subsequent correctness review and regression fixes. **Tasks 20–22 add a memory-only authenticated dashboard, stable event pagination, per-destination delivery timelines, synthetic event creation, and dead-delivery replay controls**. This is a synthetic, single-operator learning project—not a production multi-tenant service.
 
 ## What it does
 
@@ -35,7 +35,7 @@ Real PostgreSQL and HTTP/process tests cover concurrency, rollback, signing, ind
 
 Recover an outage scenario using authenticated `PATCH /control/scenarios/{id}` with `{"mode":"normal"}`. Dedupe cannot change; a consumed drop cannot be rearmed. HTTP 503/429 modes record rejection before effects and return `Retry-After: 2`.
 
-The dashboard currently provides token entry/logout, a local API connection status, configured destination codes, cursor-paginated events, and event detail with independent delivery histories, attempts and replay audit. Payloads render as escaped text and uncertainty remains visible across later attempts. The token exists only in page memory, so a refresh requires re-entry. Create/replay controls are still planned. Docker Compose currently runs PostgreSQL; the API, worker and two receivers run separately on the host. Full Compose runtime, full scripted demo, metrics, benchmarks and the final release audit are not complete. There are no measured throughput, adoption or production-readiness claims.
+The dashboard currently provides token entry/logout, a local API connection status, configured destination codes, cursor-paginated events, event detail, synthetic `order.confirmed` creation, and replay for dead deliveries. Create retries preserve the serialized request bytes and idempotency key after an uncertain response; editing a field starts a new request identity. Replay status says when work is scheduled, not delivered, and a 409 reloads current delivery state. Payloads render as escaped text and uncertainty remains visible. The token exists only in page memory, so a refresh requires re-entry. Creating a scenario still uses `democtl`; the browser does not change receiver controls or accept arbitrary destination URLs. Docker Compose currently runs PostgreSQL; the API, worker and two receivers run separately on the host. Full Compose runtime, full scripted demo, metrics, benchmarks and the final release audit are not complete. There are no measured throughput, adoption or production-readiness claims.
 
 ## Stack and prerequisites
 
@@ -103,6 +103,8 @@ npm run dev
 Open the local Vite URL and enter the API token configured on the server. The development proxy forwards `/v1` requests to the local API; no token is compiled into the frontend.
 
 Backend contract tests and their limits are mapped in [the verification matrix](docs/verification-matrix.md). Run `make test` and `make test-race` for unit checks, `make test-integration` for real PostgreSQL tests, and `make test-crash` for actual worker death and lease recovery. Integration targets require `TEST_DATABASE_ADMIN_URL` to connect to PostgreSQL's `postgres` maintenance database so each test can create and drop its own guarded database.
+
+With Docker Compose PostgreSQL running and the local `.env` available, `make web-api-smoke` creates a disposable `webhook_test_task22_*` database, starts the real API with a temporary token, creates an event, prepares one delivery as dead in that isolated database, and verifies that replay schedules cycle 2. The command drops its test database and stops its API process on exit; it does not start workers or receivers.
 
 ## Internal demo commands
 

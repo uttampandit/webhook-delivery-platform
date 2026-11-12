@@ -1,8 +1,10 @@
 import { session } from "../auth/memorySession";
 import type {
   DestinationListDto,
+  EventCreateResponseDto,
   EventDetailDto,
   EventListDto,
+  ReplayResponseDto,
 } from "./dto";
 
 export class ApiError extends Error {
@@ -34,15 +36,67 @@ export class ApiClient {
     return this.getJson(`/v1/events/${encodeURIComponent(eventId)}`, isEventDetail, signal);
   }
 
+  async createEvent(
+    body: string,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<EventCreateResponseDto> {
+    return this.requestJson(
+      "/v1/events",
+      isEventCreateResponse,
+      signal,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
+        body,
+      },
+    );
+  }
+
+  async replayDelivery(
+    deliveryId: string,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<ReplayResponseDto> {
+    return this.requestJson(
+      `/v1/deliveries/${encodeURIComponent(deliveryId)}/replay`,
+      isReplayResponse,
+      signal,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
+        body: "{}",
+      },
+    );
+  }
+
   private async getJson<T>(
     path: string,
     validate: (value: unknown) => value is T,
     signal?: AbortSignal,
   ): Promise<T> {
+    return this.requestJson(path, validate, signal, { method: "GET" });
+  }
+
+  private async requestJson<T>(
+    path: string,
+    validate: (value: unknown) => value is T,
+    signal: AbortSignal | undefined,
+    init: RequestInit,
+  ): Promise<T> {
     const request = session.beginRequest(signal);
     try {
+      const headers = new Headers(init.headers);
+      headers.set("Authorization", `Bearer ${request.token}`);
       const response = await fetch(path, {
-        headers: { Authorization: `Bearer ${request.token}` },
+        ...init,
+        headers,
         signal: request.signal,
       });
       if (request.signal.aborted) {
@@ -77,6 +131,27 @@ export class ApiClient {
       request.release();
     }
   }
+}
+
+function isEventCreateResponse(value: unknown): value is EventCreateResponseDto {
+  return (
+    isRecord(value) &&
+    typeof value.event_id === "string" &&
+    typeof value.deduplicated === "boolean" &&
+    typeof value.created_at === "string" &&
+    Array.isArray(value.delivery_ids) &&
+    value.delivery_ids.every((id) => typeof id === "string")
+  );
+}
+
+function isReplayResponse(value: unknown): value is ReplayResponseDto {
+  return (
+    isRecord(value) &&
+    typeof value.replay_id === "string" &&
+    typeof value.delivery_id === "string" &&
+    typeof value.cycle_no === "number" &&
+    typeof value.deduplicated === "boolean"
+  );
 }
 
 function isDestinationList(value: unknown): value is DestinationListDto {

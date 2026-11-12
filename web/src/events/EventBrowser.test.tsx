@@ -150,7 +150,7 @@ describe("EventBrowser", () => {
   it("keeps equal-timestamp cursor pages stable and offers a deliberate refresh for new events", async () => {
     const initial = [listItem(id9), listItem(id8)];
     const updated = [listItem(idA), listItem(id9, "succeeded", true), listItem(id8)];
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
       const path = String(input);
       if (path.includes("cursor=")) {
         return Promise.resolve(new Response(JSON.stringify(listPage([listItem(id7)], null)), { status: 200 }));
@@ -199,8 +199,10 @@ describe("EventBrowser", () => {
     ]);
     expect(fetchMock).toHaveBeenCalledWith(
       "/v1/events?limit=20&cursor=cursor-page-1",
-      expect.objectContaining({ headers: { Authorization: "Bearer event-test-token" } }),
+      expect.any(Object),
     );
+    const olderRequest = fetchMock.mock.calls.find(([path]) => String(path).includes("cursor="))?.[1];
+    expect(new Headers(olderRequest?.headers).get("Authorization")).toBe("Bearer event-test-token");
   });
 
   it("shows delivery history and uncertainty with escaped payload text", async () => {
@@ -240,6 +242,68 @@ describe("EventBrowser", () => {
     expect(payloadNode?.textContent).toContain("<script>run()</script>");
     expect(payloadNode?.querySelector("img")).toBeNull();
     expect(payloadNode?.querySelector("script")).toBeNull();
+  });
+
+  it("refreshes event details after replay returns 409", async () => {
+    const page = listPage([listItem(id9)], null);
+    const staleDetail = detailFixture();
+    const currentDetail: EventDetailDto = {
+      ...staleDetail,
+      deliveries: staleDetail.deliveries.map((delivery) =>
+        delivery.id === "delivery-notification"
+          ? {
+              ...delivery,
+              status: "pending",
+              cycle_no: 2,
+              cycle_attempt_count: 0,
+              terminal_reason: null,
+            }
+          : delivery,
+      ),
+    };
+    let detailRequestCount = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/v1/events?limit=20") {
+        return Promise.resolve(new Response(JSON.stringify(page), { status: 200 }));
+      }
+      if (path === "/v1/deliveries/delivery-notification/replay") {
+        return Promise.resolve(new Response("{}", { status: 409 }));
+      }
+      if (path.startsWith("/v1/events/")) {
+        detailRequestCount += 1;
+        const result = detailRequestCount === 1 ? staleDetail : currentDetail;
+        return Promise.resolve(new Response(JSON.stringify(result), { status: 200 }));
+      }
+      throw new Error(`Unexpected request ${path} ${init?.method ?? "GET"}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<EventBrowser destinations={[]} />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    fireEvent.click(screen.getByRole("button", { name: `View order.confirmed, event ${id9.slice(0, 8)}` }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole("button", { name: "Replay delivery" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Replay delivery" }));
+    await act(async () => {
+      for (let index = 0; index < 8; index += 1) await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/v1/deliveries/delivery-notification/replay",
+      expect.objectContaining({ method: "POST", body: "{}" }),
+    );
+    expect(detailRequestCount).toBe(2);
+    expect(
+      document.querySelector('[aria-labelledby="delivery-delivery-notification"]')?.textContent,
+    ).toContain("Pending");
+    expect(screen.queryByRole("button", { name: /Replay/ })).toBeNull();
+    expect(screen.queryByText(/Replay scheduled for cycle/)).toBeNull();
   });
 
   it("shows an explicit empty state and generic network error without fixture fallback", async () => {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, apiClient } from "../api/apiClient";
 import type {
   AttemptDto,
+  DestinationDto,
   EventDeliveryDetailDto,
   EventDetailDto,
   EventListDto,
@@ -9,10 +10,12 @@ import type {
   ReplayDto,
 } from "../api/dto";
 import { useVisiblePolling } from "../api/useVisiblePolling";
+import { CreateEvent } from "./CreateEvent";
+import { ReplayAction } from "./ReplayAction";
 
 const PAGE_SIZE = 20;
 
-export function EventBrowser() {
+export function EventBrowser({ destinations = [] }: { destinations?: DestinationDto[] }) {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
   return (
@@ -24,7 +27,11 @@ export function EventBrowser() {
         </div>
       </div>
       <div hidden={selectedEventId !== null}>
-        <EventListView onSelect={setSelectedEventId} active={selectedEventId === null} />
+        <EventListView
+          destinations={destinations}
+          onSelect={setSelectedEventId}
+          active={selectedEventId === null}
+        />
       </div>
       {selectedEventId !== null ? (
         <EventDetailView
@@ -39,9 +46,11 @@ export function EventBrowser() {
 function EventListView({
   onSelect,
   active,
+  destinations,
 }: {
   onSelect: (eventId: string) => void;
   active: boolean;
+  destinations: DestinationDto[];
 }) {
   const [events, setEvents] = useState<EventListItemDto[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -149,6 +158,7 @@ function EventListView({
 
   return (
     <div className="event-list-view">
+      <CreateEvent destinations={destinations} onOpenEvent={onSelect} />
       <p aria-live="polite" className="event-live-status" role="status">
         {loading ? "Loading events…" : liveStatus}
       </p>
@@ -222,6 +232,45 @@ function EventDetailView({
   const [event, setEvent] = useState<EventDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [refreshAfterConflict, setRefreshAfterConflict] = useState(false);
+  const conflictRefresh = useRef<AbortController | null>(null);
+
+  useEffect(
+    () => () => {
+      const controller = conflictRefresh.current;
+      conflictRefresh.current = null;
+      controller?.abort();
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!refreshAfterConflict) return;
+    const controller = new AbortController();
+    conflictRefresh.current = controller;
+    setErrorMessage("");
+    void apiClient
+      .getEvent(eventId, controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        setEvent(result);
+        setLoading(false);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setErrorMessage(friendlyError(error));
+      })
+      .finally(() => {
+        if (conflictRefresh.current !== controller) return;
+        conflictRefresh.current = null;
+        setRefreshAfterConflict(false);
+      });
+    return () => controller.abort();
+  }, [eventId, refreshAfterConflict]);
+
+  function refreshCurrentStatus(): void {
+    if (!refreshAfterConflict) setRefreshAfterConflict(true);
+  }
 
   const pollingStatus = useVisiblePolling(
     async (signal) => {
@@ -237,7 +286,7 @@ function EventDetailView({
         throw error;
       }
     },
-    true,
+    !refreshAfterConflict,
   );
 
   return (
@@ -247,6 +296,7 @@ function EventDetailView({
       </button>
       <p aria-live="polite" className="event-live-status" role="status">
         {loading ? "Loading event details…" : null}
+        {refreshAfterConflict ? "Delivery state changed; refreshing current status…" : null}
         {!loading && pollingStatus === "disconnected"
           ? "Connection interrupted. Showing the last successful detail while retrying."
           : null}
@@ -261,12 +311,18 @@ function EventDetailView({
       {!loading && event === null && !errorMessage ? (
         <p className="empty-state">This event is unavailable.</p>
       ) : null}
-      {event ? <EventDetail event={event} /> : null}
+      {event ? <EventDetail event={event} onReplayConflict={refreshCurrentStatus} /> : null}
     </div>
   );
 }
 
-function EventDetail({ event }: { event: EventDetailDto }) {
+function EventDetail({
+  event,
+  onReplayConflict,
+}: {
+  event: EventDetailDto;
+  onReplayConflict: () => void;
+}) {
   const formattedPayload = JSON.stringify(event.payload, null, 2) ?? "null";
   return (
     <article className="event-detail">
@@ -294,7 +350,11 @@ function EventDetail({ event }: { event: EventDetailDto }) {
         ) : (
           <div className="delivery-details">
             {event.deliveries.map((delivery) => (
-              <DeliveryHistory delivery={delivery} key={delivery.id} />
+              <DeliveryHistory
+                delivery={delivery}
+                key={delivery.id}
+                onReplayConflict={onReplayConflict}
+              />
             ))}
           </div>
         )}
@@ -303,7 +363,13 @@ function EventDetail({ event }: { event: EventDetailDto }) {
   );
 }
 
-function DeliveryHistory({ delivery }: { delivery: EventDeliveryDetailDto }) {
+function DeliveryHistory({
+  delivery,
+  onReplayConflict,
+}: {
+  delivery: EventDeliveryDetailDto;
+  onReplayConflict: () => void;
+}) {
   const timeline = buildTimeline(delivery.attempts, delivery.replays);
   return (
     <section aria-labelledby={`delivery-${delivery.id}`} className="delivery-detail-card">
@@ -325,6 +391,7 @@ function DeliveryHistory({ delivery }: { delivery: EventDeliveryDetailDto }) {
           <p className="terminal-reason">Terminal reason: <code>{delivery.terminal_reason}</code></p>
         ) : null}
       </header>
+      <ReplayAction delivery={delivery} onConflict={onReplayConflict} />
       <dl className="delivery-facts">
         <div><dt>Operation ID</dt><dd><code>{delivery.operation_id}</code></dd></div>
         <div><dt>Cycle</dt><dd>{delivery.cycle_no} · {delivery.cycle_attempt_count} attempts this cycle</dd></div>

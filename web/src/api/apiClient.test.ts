@@ -17,13 +17,10 @@ describe("ApiClient", () => {
 
     const result = await new ApiClient().getDestinations();
 
-    expect(fetch).toHaveBeenCalledWith(
-      "/v1/destinations",
-      expect.objectContaining({
-        headers: { Authorization: "Bearer only-in-memory" },
-        signal: expect.any(AbortSignal),
-      }),
-    );
+    expect(fetch).toHaveBeenCalledWith("/v1/destinations", expect.any(Object));
+    const request = vi.mocked(fetch).mock.calls[0]?.[1];
+    expect(new Headers(request?.headers).get("Authorization")).toBe("Bearer only-in-memory");
+    expect(request?.signal).toBeInstanceOf(AbortSignal);
     expect(result.items).toEqual([{ id: "dest-1", code: "orders" }]);
     expect(JSON.stringify(result)).not.toContain("only-in-memory");
   });
@@ -83,20 +80,48 @@ describe("ApiClient", () => {
 
     expect(page.next_cursor).toBe("cursor+/=");
     expect(detail.id).toBe(eventList.items[0]?.id);
-    expect(fetch).toHaveBeenNthCalledWith(
-      1,
-      "/v1/events?limit=20&cursor=cursor%2B%2F%3D",
-      expect.objectContaining({
-        headers: { Authorization: "Bearer read-events-token" },
-      }),
-    );
-    expect(fetch).toHaveBeenNthCalledWith(
-      2,
-      "/v1/events/00000000%2F0000",
-      expect.objectContaining({
-        headers: { Authorization: "Bearer read-events-token" },
-      }),
-    );
+    expect(fetch).toHaveBeenNthCalledWith(1, "/v1/events?limit=20&cursor=cursor%2B%2F%3D", expect.any(Object));
+    expect(fetch).toHaveBeenNthCalledWith(2, "/v1/events/00000000%2F0000", expect.any(Object));
+    const firstRequest = vi.mocked(fetch).mock.calls[0]?.[1];
+    const secondRequest = vi.mocked(fetch).mock.calls[1]?.[1];
+    expect(new Headers(firstRequest?.headers).get("Authorization")).toBe("Bearer read-events-token");
+    expect(new Headers(secondRequest?.headers).get("Authorization")).toBe("Bearer read-events-token");
+  });
+
+  it("sends exact event bytes and idempotency keys for create and replay", async () => {
+    session.login("write-events-token");
+    const createResult = {
+      event_id: "created-event",
+      deduplicated: false,
+      created_at: "2026-11-12T11:00:00Z",
+      delivery_ids: ["delivery-a"],
+    };
+    const replayResult = {
+      replay_id: "replay-a",
+      delivery_id: "delivery-a",
+      cycle_no: 2,
+      deduplicated: false,
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(createResult), { status: 202 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(replayResult), { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new ApiClient();
+    const body = '{"type":"order.confirmed", "payload":{"quantity":2},"destination_ids":["destination-a"]}';
+
+    await expect(client.createEvent(body, "create-key-1")).resolves.toEqual(createResult);
+    await expect(client.replayDelivery("delivery/a", "replay-key-1")).resolves.toEqual(replayResult);
+
+    const createRequest = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    const replayRequest = fetchMock.mock.calls[1]?.[1] as RequestInit | undefined;
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/v1/events");
+    expect(createRequest?.method).toBe("POST");
+    expect(createRequest?.body).toBe(body);
+    expect(new Headers(createRequest?.headers).get("Idempotency-Key")).toBe("create-key-1");
+    expect(new Headers(createRequest?.headers).get("Authorization")).toBe("Bearer write-events-token");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/v1/deliveries/delivery%2Fa/replay");
+    expect(replayRequest?.body).toBe("{}");
+    expect(new Headers(replayRequest?.headers).get("Idempotency-Key")).toBe("replay-key-1");
   });
 
   it("clears the token, pending requests, and registered sensitive caches after a 401", async () => {

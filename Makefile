@@ -1,7 +1,7 @@
 GO ?= go
 NPM ?= npm
 
-.PHONY: doctor build test test-race test-integration test-crash vet web-check init-env seed up down
+.PHONY: doctor build test test-race test-integration test-crash vet web-check web-api-smoke init-env seed up down
 
 doctor:
 	@sh ./scripts/doctor.sh
@@ -35,6 +35,9 @@ vet:
 
 web-check:
 	cd web && $(NPM) run lint && $(NPM) run typecheck && $(NPM) test -- --run && $(NPM) run build
+
+web-api-smoke:
+	sh ./scripts/web-api-smoke.sh
 
 init-env:
 	sh ./scripts/init-env.sh
