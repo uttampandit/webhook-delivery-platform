@@ -1,7 +1,13 @@
 GO ?= go
 NPM ?= npm
 
-.PHONY: doctor build test test-race test-integration test-crash vet web-check web-api-smoke compose-smoke demo demo-recording init-env seed up down
+.PHONY: doctor build test test-race test-integration test-crash vet web-check web-api-smoke compose-smoke demo demo-recording benchmark init-env seed up down
+
+BENCHMARK_EVENTS ?= 200
+BENCHMARK_PRODUCER_CONCURRENCY ?= 4
+BENCHMARK_PAYLOAD_BYTES ?= 1024
+BENCHMARK_TIMEOUT ?= 180s
+BENCHMARK_RUN_ID ?=
 
 doctor:
 	@sh ./scripts/doctor.sh
@@ -48,6 +54,14 @@ demo:
 
 demo-recording:
 	bash ./scripts/demo-recording.sh
+
+benchmark:
+	sh ./scripts/benchmark.sh \
+		--events="$(BENCHMARK_EVENTS)" \
+		--producer-concurrency="$(BENCHMARK_PRODUCER_CONCURRENCY)" \
+		--payload-bytes="$(BENCHMARK_PAYLOAD_BYTES)" \
+		--timeout="$(BENCHMARK_TIMEOUT)" \
+		$(if $(strip $(BENCHMARK_RUN_ID)),--run-id="$(BENCHMARK_RUN_ID)",)
 
 init-env:
 	sh ./scripts/init-env.sh

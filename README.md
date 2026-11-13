@@ -2,7 +2,7 @@
 
 A local backend project for accepting events, delivering signed webhooks to independent destinations, recovering abandoned work, and replaying exhausted deliveries.
 
-The backend and local demo are implemented through **Task 25**, with a subsequent correctness review and regression fixes. **Tasks 20–22 add a memory-only authenticated dashboard, stable event pagination, per-destination delivery timelines, synthetic event creation, and dead-delivery replay controls**. This is a synthetic, single-operator learning project—not a production multi-tenant service.
+The backend, local demo, and finite local benchmark are implemented through **Task 26**, with a subsequent correctness review and regression fixes. **Tasks 20–22 add a memory-only authenticated dashboard, stable event pagination, per-destination delivery timelines, synthetic event creation, and dead-delivery replay controls**. This is a synthetic, single-operator learning project—not a production multi-tenant service.
 
 ## What it does
 
@@ -36,7 +36,7 @@ Real PostgreSQL and HTTP/process tests cover concurrency, rollback, signing, ind
 
 Recover an outage scenario using authenticated `PATCH /control/scenarios/{id}` with `{"mode":"normal"}`. Dedupe cannot change; a consumed drop cannot be rearmed. HTTP 503/429 modes record rejection before effects and return `Retry-After: 2`.
 
-The dashboard provides token entry/logout, a local API connection status, configured destination codes, cursor-paginated events, event detail, synthetic `order.confirmed` creation, and replay for dead deliveries. Create retries preserve the serialized request bytes and idempotency key after an uncertain response; editing a field starts a new request identity. Replay status says when work is scheduled, not delivered, and a 409 reloads current delivery state. Payloads render as escaped text and uncertainty remains visible. The token exists only in page memory, so a refresh requires re-entry. Creating a scenario still uses `democtl`; the browser does not change receiver controls or accept arbitrary destination URLs. The full local Compose runtime serves the built UI and keeps receiver/control/metrics listeners on the internal network. `make demo` runs five fresh failure stories and saves sanitized reports; see [the recorded demo](docs/demo.md). Tasks 26–28, including the finite benchmark and final release audit, remain incomplete. There are no measured throughput, adoption or production-readiness claims.
+The dashboard provides token entry/logout, a local API connection status, configured destination codes, cursor-paginated events, event detail, synthetic `order.confirmed` creation, and replay for dead deliveries. Create retries preserve the serialized request bytes and idempotency key after an uncertain response; editing a field starts a new request identity. Replay status says when work is scheduled, not delivered, and a 409 reloads current delivery state. Payloads render as escaped text and uncertainty remains visible. The token exists only in page memory, so a refresh requires re-entry. Creating a scenario still uses `democtl`; the browser does not change receiver controls or accept arbitrary destination URLs. The full local Compose runtime serves the built UI and keeps receiver/control/metrics listeners on the internal network. `make demo` runs five fresh failure stories and saves sanitized reports; see [the recorded demo](docs/demo.md). Task 26 records three bounded local benchmark runs with reconciled events, attempts, and receiver effects; see [the measured report](docs/benchmark.md). Tasks 27–28 remain incomplete. The measurements describe only this finite local workload; there are no sustainable-capacity, adoption, or production-readiness claims.
 
 ## Stack and prerequisites
 
@@ -55,6 +55,14 @@ make demo
 ```
 
 If `.env` already exists, keep it and skip `make init-env`; the helper refuses to overwrite it. Compose builds the application image, waits for PostgreSQL health, applies migrations, seeds fixed destinations, and then waits for the API, worker, and both synthetic receivers. `make demo` prints five real event IDs and saves a sanitized report under `artifacts/demo/<run-id>/report.json`. Open [http://127.0.0.1:8080](http://127.0.0.1:8080), enter the `API_TOKEN` from `.env` privately, and inspect an event ID from the report. The dashboard keeps the token in page memory only. Never commit `.env`, paste credentials into commands or URLs, or include them in a recording or report.
+
+The optional finite benchmark requires those Compose services to already be healthy. It uses local fixed endpoints, a small bounded default load, and writes sanitized environment, database reconciliation, and raw samples under `artifacts/bench/<run-id>/`:
+
+```sh
+make benchmark BENCHMARK_RUN_ID=local-check BENCHMARK_EVENTS=200 BENCHMARK_PRODUCER_CONCURRENCY=4 BENCHMARK_PAYLOAD_BYTES=1024 BENCHMARK_TIMEOUT=180s
+```
+
+See [benchmark definitions, limits, and measured evidence](docs/benchmark.md). It does not measure maximum sustainable throughput.
 
 Compose seeds a separate `webhook_compose_dev` database so it does not overwrite destination URLs already stored in the older `webhook_dev` host-mode database. Both databases live in the same named PostgreSQL volume. To stop the normal local runtime while keeping data, run:
 

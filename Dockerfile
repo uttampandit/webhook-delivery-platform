@@ -14,7 +14,7 @@ COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 COPY migrations/ ./migrations/
 RUN mkdir -p /out && \
-    for binary in api worker receiver seed migrate democtl; do \
+	for binary in api worker receiver seed migrate democtl benchmark; do \
       CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o "/out/${binary}" "./cmd/${binary}"; \
     done
 

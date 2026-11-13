@@ -42,6 +42,17 @@ func TestLoadUsesDefaultsAndRoleSpecificSecrets(t *testing.T) {
 	if api.APIToken() != validTestSecret {
 		t.Fatal("API token was not retained for the API process")
 	}
+
+	benchmark, err := LoadFrom(ServiceBenchmark, mapLookup(validEnvironment()))
+	if err != nil {
+		t.Fatal("load benchmark settings:", err)
+	}
+	if benchmark.APIToken() != validTestSecret || benchmark.DemoControlToken() != validTestSecret {
+		t.Fatal("benchmark settings did not load both required control tokens")
+	}
+	if _, ok := benchmark.SigningKey(FulfillmentKeyRef); ok {
+		t.Fatal("benchmark unexpectedly loaded receiver signing keys")
+	}
 }
 
 func TestLoadRejectsMissingInvalidAndShortSecretsWithoutDisclosure(t *testing.T) {
@@ -54,10 +65,12 @@ func TestLoadRejectsMissingInvalidAndShortSecretsWithoutDisclosure(t *testing.T)
 	}{
 		{name: "missing API token", service: ServiceAPI, key: "API_TOKEN"},
 		{name: "missing democtl API token", service: ServiceDemoctl, key: "API_TOKEN"},
+		{name: "missing benchmark API token", service: ServiceBenchmark, key: "API_TOKEN"},
 		{name: "invalid API token", service: ServiceAPI, key: "API_TOKEN", value: planted},
 		{name: "short worker signing key", service: ServiceWorker, key: "FULFILLMENT_SIGNING_KEY_V1", value: "abcd"},
 		{name: "invalid worker signing key", service: ServiceWorker, key: "NOTIFICATION_SIGNING_KEY_V1", value: planted},
 		{name: "missing demo control token", service: ServiceDemoctl, key: "DEMO_CONTROL_TOKEN"},
+		{name: "missing benchmark control token", service: ServiceBenchmark, key: "DEMO_CONTROL_TOKEN"},
 		{name: "short demo control token", service: ServiceDemoctl, key: "DEMO_CONTROL_TOKEN", value: "abcd"},
 		{name: "receiver missing code", service: ServiceReceiver, key: "RECEIVER_CODE"},
 	}

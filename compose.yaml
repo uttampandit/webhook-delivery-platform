@@ -169,6 +169,19 @@ services:
     stop_grace_period: 7s
     networks: [webhook-internal]
 
+  benchmark:
+    <<: *app-image
+    entrypoint: ["/app/benchmark"]
+    profiles: ["benchmark"]
+    environment:
+      <<: *runtime-settings
+      DATABASE_URL: *compose-database-url
+      API_TOKEN: ${API_TOKEN:?Set API_TOKEN in .env}
+      DEMO_CONTROL_TOKEN: ${DEMO_CONTROL_TOKEN:?Set DEMO_CONTROL_TOKEN in .env}
+    volumes:
+      - ./artifacts:/app/artifacts
+    networks: [webhook-internal]
+
 volumes:
   webhook-postgres-data:
 

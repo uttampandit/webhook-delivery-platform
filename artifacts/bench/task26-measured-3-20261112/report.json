@@ -1,0 +1,314 @@
+{
+  "schema_version": 1,
+  "run_id": "task26-measured-3-20261112",
+  "scenario_id": "bench_task26-measured-3-20261112_e709722544272934",
+  "status": "completed",
+  "started_at": "2026-11-12T10:58:45.670832877Z",
+  "finished_at": "2026-11-12T10:58:46.177898836Z",
+  "command_args": [
+    "--events=200",
+    "--producer-concurrency=4",
+    "--payload-bytes=1024",
+    "--timeout=180s",
+    "--run-id=task26-measured-3-20261112"
+  ],
+  "configuration": {
+    "requested_events": 200,
+    "producer_concurrency": 4,
+    "payload_target_bytes": 1024,
+    "timeout_seconds": 180,
+    "run_id": "task26-measured-3-20261112",
+    "scenario_id": "bench_task26-measured-3-20261112_e709722544272934",
+    "destinations": [
+      "fulfillment",
+      "notification"
+    ],
+    "receiver_mode": "normal",
+    "receiver_dedupe_enabled": true,
+    "http_keepalive_disabled": true,
+    "retry_failed_requests": false
+  },
+  "environment": {
+    "host": {
+      "platform": "macOS-27.2-arm64-arm-64bit",
+      "os": "Darwin",
+      "release": "27.2.0",
+      "architecture": "arm64",
+      "cpu_count": 10,
+      "memory_bytes": 17179869184,
+      "go_version": "go version go1.27.3 darwin/arm64",
+      "node_version": "v26.13.0",
+      "source_commit": "45639d2d5148429ae4154cfe470994cd50efde5d",
+      "worktree_dirty": true
+    },
+    "benchmark_process": {
+      "os": "linux",
+      "architecture": "arm64",
+      "go_version": "go1.27.3"
+    },
+    "database": {
+      "name": "webhook_compose_dev",
+      "server_version": "17.11 (Debian 17.11-1.pgdg12+2)"
+    },
+    "containers": {
+      "api": {
+        "image_ref": "webhook-platform:local",
+        "image_id": "sha256:a9b349342d3158a837fcc3e968e5bfd3583fdc603c54689d42153a9b424d633d",
+        "nano_cpus": 0,
+        "cpu_quota": 0,
+        "cpu_period": 0,
+        "cpu_set": "",
+        "memory_limit_bytes": 0
+      },
+      "benchmark": {
+        "image_ref": "webhook-platform:local",
+        "image_id": "sha256:630d58ce3ff8140848cf0297efcd82f34a7f779699760030d2a3805c0b424b99",
+        "nano_cpus": 0,
+        "cpu_quota": 0,
+        "cpu_period": 0,
+        "cpu_set": "",
+        "memory_limit_bytes": 0
+      },
+      "fulfillment": {
+        "image_ref": "webhook-platform:local",
+        "image_id": "sha256:a9b349342d3158a837fcc3e968e5bfd3583fdc603c54689d42153a9b424d633d",
+        "nano_cpus": 0,
+        "cpu_quota": 0,
+        "cpu_period": 0,
+        "cpu_set": "",
+        "memory_limit_bytes": 0
+      },
+      "notification": {
+        "image_ref": "webhook-platform:local",
+        "image_id": "sha256:a9b349342d3158a837fcc3e968e5bfd3583fdc603c54689d42153a9b424d633d",
+        "nano_cpus": 0,
+        "cpu_quota": 0,
+        "cpu_period": 0,
+        "cpu_set": "",
+        "memory_limit_bytes": 0
+      },
+      "postgres": {
+        "image_ref": "postgres:17.11-bookworm",
+        "image_id": "sha256:839fbb5a4942a7758dd93e18b42ea5649807491a0545b5eeeb8f0b8bb11857a5",
+        "nano_cpus": 0,
+        "cpu_quota": 0,
+        "cpu_period": 0,
+        "cpu_set": "",
+        "memory_limit_bytes": 0
+      },
+      "worker": {
+        "image_ref": "webhook-platform:local",
+        "image_id": "sha256:a9b349342d3158a837fcc3e968e5bfd3583fdc603c54689d42153a9b424d633d",
+        "nano_cpus": 0,
+        "cpu_quota": 0,
+        "cpu_period": 0,
+        "cpu_set": "",
+        "memory_limit_bytes": 0
+      }
+    },
+    "worker_configuration": {
+      "concurrency": 4,
+      "poll_interval": "250ms",
+      "lease_duration": "30s",
+      "lease_margin": "5s",
+      "http_timeout": "5s",
+      "db_statement_timeout": "3s",
+      "database_pool_max": 6
+    },
+    "benchmark_database_pool_max": 2,
+    "api_database_pool_max": 8,
+    "api_metrics_database_pool_max": 1,
+    "worker_metrics_database_pool_max": 1,
+    "receiver_database_pool_max": 8,
+    "benchmark_http_keepalive_disabled": true,
+    "worker_sender_http_keepalive_disabled": true
+  },
+  "counts": {
+    "planned_requests": 200,
+    "attempted_requests": 200,
+    "not_started_requests": 0,
+    "successful_responses": 200,
+    "deduplicated_responses": 0,
+    "request_failures_by_class": {},
+    "accepted_unique_events_from_database": 200,
+    "unique_deliveries": 400,
+    "succeeded_deliveries": 400,
+    "dead_deliveries": 0,
+    "pending_deliveries": 0,
+    "in_flight_deliveries": 0,
+    "persisted_attempts": 400,
+    "persisted_receiver_requests": 400,
+    "persisted_receiver_effects": 400,
+    "accepted_events_without_valid_api_response": 0
+  },
+  "drain": {
+    "duration_ms": 413.182,
+    "all_existing_deliveries_terminal": true,
+    "run_deadline_exceeded": false,
+    "run_cancelled": false,
+    "unfinished_denominator_deliveries": 0
+  },
+  "performance": {
+    "ingest_phase_duration_ms": 77.98,
+    "drain_phase_duration_ms": 413.182,
+    "accepted_unique_events_per_second": 2564.771,
+    "retry_amplification": 1,
+    "receiver_request_amplification": 1,
+    "api_request_latency_all_ms": {
+      "count": 200,
+      "min": 0.8865,
+      "mean": 1.5038720599999993,
+      "p50": 1.327542,
+      "p95": 2.5935,
+      "p99": 2.95325,
+      "max": 3.549333
+    },
+    "api_request_latency_success_only_ms": {
+      "count": 200,
+      "min": 0.8865,
+      "mean": 1.5038720599999993,
+      "p50": 1.327542,
+      "p95": 2.5935,
+      "p99": 2.95325,
+      "max": 3.549333
+    },
+    "initial_queue_delay_ms": {
+      "count": 400,
+      "min": 155.961,
+      "mean": 250.6757025000002,
+      "p50": 254.859,
+      "p95": 327.434,
+      "p99": 334.368,
+      "max": 336.765
+    },
+    "end_to_end_acknowledgment_latency_ms": {
+      "count": 400,
+      "min": 161.513,
+      "mean": 252.075035,
+      "p50": 256.128,
+      "p95": 328.712,
+      "p99": 336.051,
+      "max": 338.08
+    },
+    "actual_input_request_bytes": {
+      "count": 200,
+      "min": 1024,
+      "mean": 1024,
+      "p50": 1024,
+      "p95": 1024,
+      "p99": 1024,
+      "max": 1024
+    },
+    "database_stored_request_bytes": {
+      "count": 200,
+      "min": 1024,
+      "mean": 1024,
+      "p50": 1024,
+      "p95": 1024,
+      "p99": 1024,
+      "max": 1024
+    },
+    "actual_wire_body_bytes": {
+      "count": 200,
+      "min": 1016,
+      "mean": 1017.9,
+      "p50": 1018,
+      "p95": 1018,
+      "p99": 1018,
+      "max": 1018
+    },
+    "by_destination": {
+      "fulfillment": {
+        "unique_deliveries": 200,
+        "succeeded": 200,
+        "dead": 0,
+        "unfinished": 0,
+        "persisted_attempts": 200,
+        "persisted_receiver_requests": 200,
+        "persisted_receiver_effects": 200,
+        "retry_amplification": 1,
+        "receiver_request_amplification": 1,
+        "initial_queue_delay_ms": {
+          "count": 200,
+          "min": 155.961,
+          "mean": 250.6802899999999,
+          "p50": 254.859,
+          "p95": 327.434,
+          "p99": 333.832,
+          "max": 336.765
+        },
+        "acknowledgment_latency_ms": {
+          "count": 200,
+          "min": 161.513,
+          "mean": 252.07756500000008,
+          "p50": 256.128,
+          "p95": 328.712,
+          "p99": 335.11,
+          "max": 338.08
+        }
+      },
+      "notification": {
+        "unique_deliveries": 200,
+        "succeeded": 200,
+        "dead": 0,
+        "unfinished": 0,
+        "persisted_attempts": 200,
+        "persisted_receiver_requests": 200,
+        "persisted_receiver_effects": 200,
+        "retry_amplification": 1,
+        "receiver_request_amplification": 1,
+        "initial_queue_delay_ms": {
+          "count": 200,
+          "min": 155.961,
+          "mean": 250.67111499999993,
+          "p50": 254.241,
+          "p95": 326.73,
+          "p99": 334.368,
+          "max": 336.093
+        },
+        "acknowledgment_latency_ms": {
+          "count": 200,
+          "min": 162.019,
+          "mean": 252.07250499999998,
+          "p50": 255.995,
+          "p95": 328.041,
+          "p99": 336.051,
+          "max": 337.39
+        }
+      }
+    },
+    "definitions": {
+      "accepted_unique_events_per_second": "Unique events reconciled from PostgreSQL for this run divided by monotonic ingest phase duration.",
+      "api_request_latency": "Monotonic client elapsed time for every attempted ingest request; success-only includes valid HTTP 200 or 202 responses.",
+      "end_to_end_acknowledgment_latency": "For succeeded deliveries only, delivery confirmed_at minus event created_at using PostgreSQL timestamps; dead and unfinished deliveries remain in the denominator counts.",
+      "initial_queue_delay": "First persisted attempt started_at minus event created_at, using PostgreSQL timestamps from the same database clock.",
+      "input_and_wire_sizes": "Input size is the serialized ingest request before the API constructs its outgoing envelope; wire size is the stored event wire_body length.",
+      "percentiles": "Nearest rank on sorted samples: rank = ceil(p*n), one-based; p50, p95, and p99 are reported.",
+      "receiver_request_amplification": "Persisted receiver request rows divided by unique deliveries; receiver effects are counted separately.",
+      "request_retry_policy": "The benchmark sends each planned idempotency key once; failed and uncertain requests are recorded and never replaced with new keys.",
+      "retry_amplification": "Persisted attempts divided by unique deliveries; an attempt row can exist even if the worker dies before sending HTTP.",
+      "unfinished_denominator": "Pending and in-flight deliveries at the final database snapshot; dead deliveries are reported separately."
+    }
+  },
+  "reconciliation": {
+    "api_response_event_ids_match_database": true,
+    "api_returned_delivery_ids_match_database": true,
+    "delivery_count_matches_accepted_events": true,
+    "receiver_scenarios_are_normal_with_dedupe": true,
+    "receiver_operations_match_deliveries": true,
+    "receiver_effects_are_deduplicated_per_operation": true,
+    "expected_deliveries": 400,
+    "issues": [],
+    "passed": true
+  },
+  "raw_sample_files": {
+    "report": "artifacts/bench/task26-measured-3-20261112/report.json",
+    "ingest_samples": "artifacts/bench/task26-measured-3-20261112/ingest_samples.csv",
+    "delivery_samples": "artifacts/bench/task26-measured-3-20261112/delivery_samples.csv"
+  },
+  "limitations": [
+    "Finite closed-loop local workload; this run does not establish maximum sustainable throughput.",
+    "API, worker, PostgreSQL, and receivers share one local host; receiver scenario-row locks and shared database work affect the measured path.",
+    "Each planned ingest key is sent once. Failed or uncertain requests are reported and reconciled from PostgreSQL without replacement keys."
+  ]
+}

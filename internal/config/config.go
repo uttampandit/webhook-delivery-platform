@@ -15,12 +15,13 @@ import (
 type Service string
 
 const (
-	ServiceAPI      Service = "api"
-	ServiceWorker   Service = "worker"
-	ServiceReceiver Service = "receiver"
-	ServiceSeed     Service = "seed"
-	ServiceMigrate  Service = "migrate"
-	ServiceDemoctl  Service = "democtl"
+	ServiceAPI       Service = "api"
+	ServiceWorker    Service = "worker"
+	ServiceReceiver  Service = "receiver"
+	ServiceSeed      Service = "seed"
+	ServiceMigrate   Service = "migrate"
+	ServiceDemoctl   Service = "democtl"
+	ServiceBenchmark Service = "benchmark"
 )
 
 type RunMode string
@@ -141,13 +142,13 @@ func LoadFrom(service Service, lookup func(string) (string, bool)) (Settings, er
 		signingKeys:        make(map[string][]byte),
 	}
 
-	if service == ServiceAPI || service == ServiceDemoctl {
+	if service == ServiceAPI || service == ServiceDemoctl || service == ServiceBenchmark {
 		settings.apiToken, _, err = readSecret(lookup, "API_TOKEN")
 		if err != nil {
 			return Settings{}, err
 		}
 	}
-	if service == ServiceDemoctl || service == ServiceReceiver {
+	if service == ServiceDemoctl || service == ServiceReceiver || service == ServiceBenchmark {
 		settings.demoControlToken, _, err = readSecret(lookup, "DEMO_CONTROL_TOKEN")
 		if err != nil {
 			return Settings{}, err
@@ -186,7 +187,7 @@ func LoadFrom(service Service, lookup func(string) (string, bool)) (Settings, er
 
 func knownService(service Service) bool {
 	switch service {
-	case ServiceAPI, ServiceWorker, ServiceReceiver, ServiceSeed, ServiceMigrate, ServiceDemoctl:
+	case ServiceAPI, ServiceWorker, ServiceReceiver, ServiceSeed, ServiceMigrate, ServiceDemoctl, ServiceBenchmark:
 		return true
 	default:
 		return false
