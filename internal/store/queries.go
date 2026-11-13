@@ -317,11 +317,23 @@ func (r *QueryRepository) GetEvent(ctx context.Context, tenantID, eventID string
 		return EventDetail{}, ErrInvalidInput
 	}
 
+	// Keep delivery status, attempt history and replay audit on one snapshot,
+	// even when a worker or operator commits between these bounded reads.
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return EventDetail{}, ErrStoreUnavailable
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = tx.Rollback(cleanup)
+	}()
+
 	// Fetch event row including wire_body for payload extraction.
 	var evType string
 	var createdAt time.Time
 	var wireBody []byte
-	err = r.pool.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		SELECT event_type, created_at, wire_body
 		FROM events
 		WHERE tenant_id = $1 AND id = $2`,
@@ -339,7 +351,7 @@ func (r *QueryRepository) GetEvent(ctx context.Context, tenantID, eventID string
 	}
 
 	// Fetch deliveries (tenant-scoped).
-	deliveryRows, err := r.pool.Query(ctx, `
+	deliveryRows, err := tx.Query(ctx, `
 		SELECT
 			d.id::text,
 			dest.code,
@@ -411,7 +423,7 @@ func (r *QueryRepository) GetEvent(ctx context.Context, tenantID, eventID string
 	// Fetch attempts for all deliveries in a single query.
 	attemptMap := make(map[string][]AttemptDetail, len(rawDeliveries))
 	if len(deliveryUUIDs) > 0 {
-		aRows, err := r.pool.Query(ctx, `
+		aRows, err := tx.Query(ctx, `
 			SELECT
 				id::text, delivery_id::text,
 				attempt_no, cycle_no, cycle_attempt_no, outcome,
@@ -450,7 +462,7 @@ func (r *QueryRepository) GetEvent(ctx context.Context, tenantID, eventID string
 	// Fetch replays for all deliveries in a single query.
 	replayMap := make(map[string][]ReplayDetail, len(rawDeliveries))
 	if len(deliveryUUIDs) > 0 {
-		rRows, err := r.pool.Query(ctx, `
+		rRows, err := tx.Query(ctx, `
 			SELECT
 				id::text, delivery_id::text,
 				from_cycle, to_cycle, actor, created_at
@@ -524,6 +536,9 @@ func (r *QueryRepository) GetEvent(ctx context.Context, tenantID, eventID string
 		result.Deliveries = append(result.Deliveries, dd)
 	}
 
+	if err := tx.Commit(ctx); err != nil {
+		return EventDetail{}, ErrStoreUnavailable
+	}
 	return result, nil
 }
 
