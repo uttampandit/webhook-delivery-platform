@@ -9,6 +9,12 @@ state/.compose-smoke-event.json
 !/docs/observability.md
 !/docs/demo.md
 !/docs/benchmark.md
+!/docs/architecture.md
+!/docs/operations.md
+!/docs/limitations.md
+!/docs/failure-postmortem.md
+!/docs/interview.md
+!/docs/competitors.md
 !/learning/PROJECT_EXPLAINED.md
 !/learning/WALKTHROUGH.md
 !/learning/EXERCISES.md

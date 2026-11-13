@@ -1,6 +1,6 @@
 # Understanding checks
 
-Current checkpoint: backend through Task 18. Later SIGKILL, dashboard and benchmark sections below are planned exercises, not completed demonstrations. See the [README](../README.md) for available commands.
+Current implementation checkpoint: Task 27. These are still questions for the learner to answer; completed implementation and passing tests do not demonstrate that a candidate understands the answers. See the [README](../README.md), [architecture guide](../docs/architecture.md), and [interview study guide](../docs/interview.md).
 
 Do these in a disposable test database or fresh scenario. Do not mutate real/demo persisted deliveries manually to get a better recording. The coding agent can guide the user and explain answers, but should let the user attempt the reasoning first.
 
@@ -16,5 +16,6 @@ Do these in a disposable test database or fresh scenario. Do not mutate real/dem
 10. **Small code change:** Add a test for an untested Retry-After edge case, explain it, run it. Alternatively add a harmless destination-code display improvement and verify it. Do not change retry identity/lease semantics as an exercise.
 11. **Measurements:** Explain why 200 accepted events can create400 deliveries and more than400 attempts while still producing400 total effects with dedupe. Reconcile an actual run.
 12. **Scaling decision:** Given actual pool saturation/queue-delay data, propose one small experiment. Name what would justify a broker and what adding one would complicate. Do not add one just for the exercise.
+13. **Competitor scope:** Use the [capability map](../docs/competitors.md) to compare one documented vendor feature with this project's actual scope. Explain why an `Unknown` cell is not proof that the vendor lacks that feature, and why a feature list does not establish quality or commercial novelty.
 
-Record questions still unclear in docs/interview.md. The objective is accurate understanding, not memorizing impressive terms.
+Evidence pointers: [`events.go`](../internal/store/events.go), [`claims.go`](../internal/store/claims.go), [`worker.go`](../internal/delivery/worker.go), [`recovery.go`](../internal/store/recovery.go), [`finalize.go`](../internal/store/finalize.go), [`replay.go`](../internal/store/replay.go), [real crash tests](../tests/crash/crash_test.go), [benchmark reports](../docs/benchmark.md), and [demo reports](../docs/demo.md). Record the learner's own answers and remaining questions in a separate learning note; do not fill them in based on test outcomes. The objective is accurate understanding, not memorizing impressive terms.

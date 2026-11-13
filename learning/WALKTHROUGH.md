@@ -1,6 +1,6 @@
 # Explain the project as you build it
 
-Current checkpoint: backend through Task 18. Later SIGKILL, dashboard and benchmark sections below are planned exercises, not completed demonstrations. See the [README](../README.md) for available commands.
+Current implementation checkpoint: Task 27. The crash, dashboard, demo, and benchmark sections below link to implemented code and recorded checks. This guide is an explanation aid, not evidence that a candidate understands the code. See the [README](../README.md) for available commands and [interview preparation](../docs/interview.md) for an evidence-led narrative outline.
 
 Read the matching section after the named task. The implementation agent should answer using the actual source and tests; these are expected explanations, not a claim of candidate mastery.
 
@@ -23,6 +23,10 @@ Use the UI to inspect one dead delivery, its earlier uncertain attempts and repl
 ## After26 — measurements
 
 Run a small benchmark and explain every numerator/denominator. Distinguish accepted events, delivery rows, persisted attempts, actual receiver requests and effects. Why is the finite closed-loop run not a maximum throughput claim? Point to actual raw samples, environment and limits. Identify one measured bottleneck before discussing an optimization.
+
+## After27 — explain ownership honestly
+
+Use [the architecture guide](../docs/architecture.md), [failure postmortem](../docs/failure-postmortem.md), [limitations](../docs/limitations.md), and [competitor map](../docs/competitors.md). Separate repository evidence from what you personally implemented, reviewed, and can explain. Be clear that the code and documentation were created with AI assistance; do not claim the tests prove candidate mastery.
 
 ## Final interview narrative
 

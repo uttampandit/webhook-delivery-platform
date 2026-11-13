@@ -1,6 +1,6 @@
 # Understand the project before reading the code
 
-This guide explains the design. The backend is implemented through Task 18; the dashboard, full Compose runtime and actual SIGKILL experiments remain later milestones. See the [README](../README.md) for current commands and limits.
+This guide explains the current design through Task 27. The dashboard, full Compose runtime, actual worker-death tests, failure demos, and finite benchmark are implemented and linked from the [README](../README.md). Passing implementation tests does not prove a learner understands these explanations.
 
 ## Start with one order
 
@@ -18,8 +18,8 @@ Why put our platform in the middle? It gives the operator a durable record of ac
 | PostgreSQL | Stores events, delivery jobs, attempts and replay history | Work remains recorded when a process stops |
 | Worker, written in Go | Claims due delivery jobs and sends signed HTTP requests | Delivery/retry work runs independently of the incoming API request |
 | Two demo receivers | Validate signatures and record synthetic business effects | Let us reproduce both safe and unsafe receiver behavior |
-| React dashboard (planned) | Shows events, independent destination states and attempt history | Makes the system usable and its behavior visible |
-| Docker Compose | Runs PostgreSQL now; full service runtime is planned | Makes the demo repeatable without a cloud account |
+| React dashboard | Lets the local operator inspect events, per-destination states, attempts, and dead-delivery replay | Makes the synthetic system and its uncertain outcomes visible |
+| Docker Compose | Runs PostgreSQL, API, worker, dashboard, and both synthetic receivers locally | Makes the demo repeatable without a cloud account |
 
 PostgreSQL also holds the local receivers' demo tables for convenience. In a real integration, each receiver would normally own its own database. This demo does not claim a distributed transaction across sender and receivers.
 
@@ -45,7 +45,7 @@ In this version a key is retained indefinitely and scoped to the tenant. The sam
 
 ## The failure that makes the project interesting
 
-The following dropped-response behavior is implemented and tested with real HTTP/1.1 sockets and PostgreSQL, including a receiver process restart. Actual worker SIGKILL experiments remain a later milestone.
+Two different response-loss cases are implemented and tested with real HTTP and PostgreSQL. The local demo closes a receiver connection after its effect commits. A separate process harness kills the actual worker after its HTTP response but before sender finalization; see the [failure postmortem](../docs/failure-postmortem.md). Neither is a production outage.
 
 1. The worker sends the fulfillment webhook.
 2. The receiver records the fulfillment effect and commits it.
@@ -75,7 +75,7 @@ Each cycle allows five claims, including claims abandoned before sending. After 
 
 An operator can fix the receiver and **replay** a dead delivery. Replay creates a new retry cycle with an audit record. The operation ID stays the same, so a receiver that already applied the operation can still deduplicate it. An intentional new send of a successful operation is a different feature and is outside this version.
 
-## Delivery states: available through the API; dashboard planned
+## Delivery states: available through the local dashboard and API
 
 | Display | Meaning |
 |---|---|
@@ -91,10 +91,10 @@ Earlier unconfirmed attempts remain visible after a later success. A currently r
 
 Go provides explicit HTTP behavior, cancellation and concurrent workers. PostgreSQL gives us atomic storage and row locking without introducing a second queue system. React makes the operational timeline easy to use. Compose provides a local reproducible environment. The project does not need an AI feature to demonstrate useful engineering in an AI-heavy job market.
 
-Kafka or Redis could be discussed as alternatives later. Adding another system now would introduce coordination and operational work before measurements justify it. We first measure what this bounded design actually does.
+Kafka or Redis could be discussed as alternatives later. Adding another system now would introduce coordination and operational work before measurements justify it. The [three finite benchmark runs](../docs/benchmark.md) provide bounded local evidence, not a maximum-throughput or scale result.
 
 ## Learn in small stages
 
-After task 07, explain how acceptance avoids duplicate ingest. After task 13, trace one signed delivery. After task 19, explain worker death and the duplicate-effect window. After task 22, use the dashboard and replay. After task 26, explain actual benchmark results and their limits.
+After Task 07, explain how acceptance avoids duplicate ingest. After Task 13, trace one signed delivery. After Task 19, explain worker death and the duplicate-effect window. After Task 22, use the dashboard and replay. After Task 26, explain measured results and their limits. Task 27 adds the sourced [competitor map](../docs/competitors.md) and [interview study guide](../docs/interview.md); use them to guide research and practice, not as evidence of personal understanding.
 
 Use [WALKTHROUGH.md](WALKTHROUGH.md) for those milestones, [EXERCISES.md](EXERCISES.md) for experiments, and an optional local `learning/LEARNING_LOG.md` notebook for questions (not published). You should eventually be able to trace the code and make a small change; memorizing this explanation is not the same as understanding the implementation.
