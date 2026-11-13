@@ -104,4 +104,47 @@ describe("ReplayAction", () => {
     expect(onConflict).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/Replay scheduled for cycle/)).toBeNull();
   });
+  it.each(["success", "failure"])("ignores a late %s after polling advances to another dead cycle", async (outcome) => {
+    let resolveFirst!: (response: Response) => void;
+    let rejectFirst!: (error: Error) => void;
+    let resolveSecond!: (response: Response) => void;
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>((resolve, reject) => {
+        resolveFirst = resolve;
+        rejectFirst = reject;
+      }))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveSecond = resolve; }));
+    vi.stubGlobal("fetch", fetchMock);
+    const onConflict = vi.fn();
+    const { rerender } = render(<ReplayAction delivery={deadDelivery()} onConflict={onConflict} />);
+    fireEvent.click(screen.getByRole("button", { name: "Replay delivery" }));
+    const firstRequest = fetchMock.mock.calls[0]?.[1] as RequestInit;
+
+    rerender(<ReplayAction delivery={{ ...deadDelivery(), cycle_no: 2 }} onConflict={onConflict} />);
+    fireEvent.click(screen.getByRole("button", { name: "Replay delivery" }));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(firstRequest.signal?.aborted).toBe(true);
+    const secondRequest = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect(new Headers(firstRequest.headers).get("Idempotency-Key")).not.toBe(
+      new Headers(secondRequest.headers).get("Idempotency-Key"),
+    );
+
+    await act(async () => {
+      if (outcome === "success") resolveFirst(replayResponse());
+      else rejectFirst(new TypeError("late response loss"));
+    });
+    expect(screen.queryByText("Replay scheduled for cycle 2.")).toBeNull();
+    expect(screen.queryByText(/response was not confirmed/)).toBeNull();
+    const pending = screen.getByRole("button", { name: "Scheduling replay…" });
+    expect((pending as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(pending);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(onConflict).not.toHaveBeenCalled();
+
+    await act(async () => resolveSecond(new Response(JSON.stringify({
+      replay_id: "replay-2", delivery_id: "delivery-dead", cycle_no: 3, deduplicated: false,
+    }), { status: 202 })));
+    expect(screen.getByText("Replay scheduled for cycle 3.")).toBeTruthy();
+  });
+
 });

@@ -25,6 +25,12 @@ export function ReplayAction({
   useEffect(() => {
     if (cycleRef.current === delivery.cycle_no) return;
     cycleRef.current = delivery.cycle_no;
+    // Polling has observed a new cycle. Results from the old action must not
+    // replace that newer state or keep a newly dead cycle from being replayed.
+    const controller = controllerRef.current;
+    controllerRef.current = null;
+    controller?.abort();
+    sendingRef.current = false;
     setAction(null);
   }, [delivery.cycle_no]);
 
@@ -65,8 +71,10 @@ export function ReplayAction({
         setAction({ kind: "error", message: "The replay request was not accepted." });
       }
     } finally {
-      sendingRef.current = false;
-      if (controllerRef.current === controller) controllerRef.current = null;
+      if (controllerRef.current === controller) {
+        controllerRef.current = null;
+        sendingRef.current = false;
+      }
     }
   }
 
