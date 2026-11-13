@@ -2,7 +2,7 @@
 
 A local backend project for accepting events, delivering signed webhooks to independent destinations, recovering abandoned work, and replaying exhausted deliveries.
 
-The backend is implemented through **Task 24**, with a subsequent correctness review and regression fixes. **Tasks 20–22 add a memory-only authenticated dashboard, stable event pagination, per-destination delivery timelines, synthetic event creation, and dead-delivery replay controls**. This is a synthetic, single-operator learning project—not a production multi-tenant service.
+The backend and local demo are implemented through **Task 25**, with a subsequent correctness review and regression fixes. **Tasks 20–22 add a memory-only authenticated dashboard, stable event pagination, per-destination delivery timelines, synthetic event creation, and dead-delivery replay controls**. This is a synthetic, single-operator learning project—not a production multi-tenant service.
 
 ## What it does
 
@@ -36,7 +36,7 @@ Real PostgreSQL and HTTP/process tests cover concurrency, rollback, signing, ind
 
 Recover an outage scenario using authenticated `PATCH /control/scenarios/{id}` with `{"mode":"normal"}`. Dedupe cannot change; a consumed drop cannot be rearmed. HTTP 503/429 modes record rejection before effects and return `Retry-After: 2`.
 
-The dashboard provides token entry/logout, a local API connection status, configured destination codes, cursor-paginated events, event detail, synthetic `order.confirmed` creation, and replay for dead deliveries. Create retries preserve the serialized request bytes and idempotency key after an uncertain response; editing a field starts a new request identity. Replay status says when work is scheduled, not delivered, and a 409 reloads current delivery state. Payloads render as escaped text and uncertainty remains visible. The token exists only in page memory, so a refresh requires re-entry. Creating a scenario still uses `democtl`; the browser does not change receiver controls or accept arbitrary destination URLs. The full local Compose runtime serves the built UI and keeps receiver/control/metrics listeners on the internal network. Task 25 choreography, benchmarks, and the final release audit remain incomplete. There are no measured throughput, adoption or production-readiness claims.
+The dashboard provides token entry/logout, a local API connection status, configured destination codes, cursor-paginated events, event detail, synthetic `order.confirmed` creation, and replay for dead deliveries. Create retries preserve the serialized request bytes and idempotency key after an uncertain response; editing a field starts a new request identity. Replay status says when work is scheduled, not delivered, and a 409 reloads current delivery state. Payloads render as escaped text and uncertainty remains visible. The token exists only in page memory, so a refresh requires re-entry. Creating a scenario still uses `democtl`; the browser does not change receiver controls or accept arbitrary destination URLs. The full local Compose runtime serves the built UI and keeps receiver/control/metrics listeners on the internal network. `make demo` runs five fresh failure stories and saves sanitized reports; see [the recorded demo](docs/demo.md). Tasks 26–28, including the finite benchmark and final release audit, remain incomplete. There are no measured throughput, adoption or production-readiness claims.
 
 ## Stack and prerequisites
 
@@ -46,14 +46,15 @@ Use the repository's pinned tools: Go **1.27.3** (module language 1.27), Node **
 
 ## Run locally
 
-Start Docker, then initialize private configuration once and start the full Compose runtime:
+Start Docker, then initialize private configuration once and start the full Compose runtime. Run the failure walkthrough against the local API, worker, and synthetic receivers:
 
 ```sh
 make init-env
 make up
+make demo
 ```
 
-If `.env` already exists, keep it and skip `make init-env`; the helper refuses to overwrite it. Compose builds the application image, waits for PostgreSQL health, applies migrations, seeds fixed destinations, and then waits for the API, worker, and both synthetic receivers. Open [http://127.0.0.1:8080](http://127.0.0.1:8080) and enter the `API_TOKEN` from `.env`; the dashboard keeps it in page memory only. Never commit `.env` or paste credentials into commands, URLs, or reports.
+If `.env` already exists, keep it and skip `make init-env`; the helper refuses to overwrite it. Compose builds the application image, waits for PostgreSQL health, applies migrations, seeds fixed destinations, and then waits for the API, worker, and both synthetic receivers. `make demo` prints five real event IDs and saves a sanitized report under `artifacts/demo/<run-id>/report.json`. Open [http://127.0.0.1:8080](http://127.0.0.1:8080), enter the `API_TOKEN` from `.env` privately, and inspect an event ID from the report. The dashboard keeps the token in page memory only. Never commit `.env`, paste credentials into commands or URLs, or include them in a recording or report.
 
 Compose seeds a separate `webhook_compose_dev` database so it does not overwrite destination URLs already stored in the older `webhook_dev` host-mode database. Both databases live in the same named PostgreSQL volume. To stop the normal local runtime while keeping data, run:
 
@@ -63,21 +64,16 @@ make down
 
 `make down` removes containers and the network but retains the named volume. `docker compose down -v` deletes that volume and its databases; use it only when you intend to discard local data.
 
-## Internal demo commands
+## Demo and internal commands
 
-`democtl` is included in the API image and receives credentials through the container environment. Create a fresh scenario, publish an event, and inspect receiver effects with:
+`democtl` is included in the API image and receives credentials through the container environment. `make demo` creates new scenario IDs on every run, executes healthy fan-out, outage recovery, response-loss retries with dedupe enabled and disabled, and dead-delivery replay. It checks API status and attempt history plus receiver-persisted request/effect counts. It never deletes prior events or scenarios, and it exits nonzero if an expectation fails. A failed run also saves its partial sanitized report.
 
 ```sh
-docker compose exec -T api /app/democtl scenario create --id walkthrough --receiver both --mode normal --dedupe on
-# Copy the returned fresh scenario_id into the next commands.
-docker compose exec -T api /app/democtl publish --scenario <scenario_id> --order order_1001 --destinations fulfillment,notification
-docker compose exec -T api /app/democtl wait --event <event_id> --state succeeded --timeout 90s
-docker compose exec -T api /app/democtl scenario inspect --id <scenario_id> --receiver both
-docker compose exec -T api /app/democtl scenario recover --id <scenario_id> --receiver fulfillment
-docker compose exec -T api /app/democtl replay --delivery <dead_delivery_id> --key replay_request_1
+make demo
+bash scripts/demo-recording.sh
 ```
 
-Creation appends a random suffix, so repeating the base name creates a fresh scenario without deleting data. Repeat the same publish flags for a retry: deterministic bytes produce the same idempotency key. For an exact saved request, use `publish --file request.json --key request_1`; the file's bytes are preserved. Change the scenario/order or explicit key for a new event. Replay always requires an explicit nonsecret request key. Wait checks every delivery and exits nonzero with its last validated statuses on timeout. Full `run` choreography and saved run reports arrive in Task 25.
+The recording helper writes the unedited command and output transcript beneath `artifacts/demo/recording-*/`. For a shortened walkthrough, use prepared report IDs and label any cuts around real retry/backoff waits. Keep the browser recording paused while entering the API token. For individual control, publish, wait, and replay operations, see [the demo walkthrough](docs/demo.md); replay requires an explicit nonsecret request key, and wait checks every selected delivery before reporting the requested state.
 
 ## Verification
 

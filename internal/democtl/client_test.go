@@ -3,6 +3,7 @@ package democtl
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -87,7 +88,7 @@ func TestStrictFlagsAndSanitizedFailures(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(500); fmt.Fprint(w, testToken) }))
 	defer server.Close()
 	c := New(settings(t), Endpoints{API: server.URL})
-	for _, args := range [][]string{{"publish", "--token", testToken}, {"publish", "--scenario", "a", "--scenario", "b"}, {"replay", "--delivery", deliveryID}, {"wait", "--event", eventID, "--state", "succeeded", "--timeout", "0s"}, {"scenario", "create", "--id", "ok", "--receiver", "external"}, {"publish", "positional"}} {
+	for _, args := range [][]string{{"publish", "--token", testToken}, {"publish", "--scenario", "a", "--scenario", "b"}, {"replay", "--delivery", deliveryID}, {"wait", "--event", eventID, "--state", "succeeded", "--timeout", "0s"}, {"scenario", "create", "--id", "ok", "--receiver", "external"}, {"publish", "positional"}, {"run", "--token", testToken}} {
 		invoke(t, c, 1, args...)
 	}
 	if calls != 0 {
@@ -98,6 +99,33 @@ func TestStrictFlagsAndSanitizedFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRunFailureWritesSanitizedPartialReport(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, testToken)
+	}))
+	defer server.Close()
+	c := New(settings(t), Endpoints{
+		API:      server.URL,
+		Controls: map[string]string{"fulfillment": server.URL, "notification": server.URL},
+	})
+	var out, errs bytes.Buffer
+	if code := c.Run(context.Background(), []string{"run"}, &out, &errs); code != 1 {
+		t.Fatalf("run exit=%d, want 1", code)
+	}
+	var report runReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("failure report missing: %v (%q)", err, out.String())
+	}
+	if report.Status != "failed" || report.Failure == nil || report.Failure.Step != "healthy_fanout" || len(report.Scenarios) != 1 || report.Scenarios[0].Status != "failed" {
+		t.Fatalf("unexpected partial report: %+v", report)
+	}
+	if strings.Contains(out.String()+errs.String(), testToken) {
+		t.Fatal("failed demo report leaked a credential")
+	}
+}
+
 func TestWaitDeadlineRetainsOnlyValidatedStatuses(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"id":%q,"deliveries":[{"id":%q,"destination_code":"fulfillment","status":"pending"}],"payload":%q}`, eventID, deliveryID, testToken)

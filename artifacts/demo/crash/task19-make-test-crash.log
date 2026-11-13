@@ -1,0 +1,2 @@
+go test -timeout 240s -tags 'integration,crash' ./tests/crash
+ok  	github.com/uttampandit/webhook-delivery-platform/tests/crash	17.131s

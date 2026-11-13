@@ -63,6 +63,15 @@ func (c *Client) Run(ctx context.Context, args []string, out, stderr io.Writer) 
 		return s
 	}
 	if err != nil {
+		var reported *runReportedError
+		if errors.As(err, &reported) {
+			encoded, encodeErr := json.Marshal(reported.report)
+			if encodeErr != nil {
+				fmt.Fprintln(stderr, "demo report encoding failed")
+				return 1
+			}
+			fmt.Fprintln(out, clean(string(encoded)))
+		}
 		fmt.Fprintln(stderr, clean(err.Error()))
 		return 1
 	}
@@ -176,7 +185,10 @@ func (c *Client) execute(ctx context.Context, args []string) (any, error) {
 	case "replay":
 		return c.replay(ctx, args[1:])
 	case "run":
-		return nil, errors.New("run choreography is deferred; use individual commands")
+		if len(args) != 1 {
+			return nil, errInput
+		}
+		return c.run(ctx)
 	}
 	return nil, errInput
 }
@@ -231,12 +243,13 @@ func (c *Client) scenario(ctx context.Context, args []string) (any, error) {
 		return map[string]string{"mode": "normal", "receiver": codes[0]}, nil
 	}
 	type summary struct {
-		Receiver string `json:"receiver"`
-		Mode     string `json:"mode"`
-		Dedupe   bool   `json:"dedupe_enabled"`
-		Drop     int    `json:"drop_remaining"`
-		Requests int64  `json:"request_count"`
-		Effects  int64  `json:"effect_count"`
+		Receiver        string                     `json:"receiver"`
+		Mode            string                     `json:"mode"`
+		Dedupe          bool                       `json:"dedupe_enabled"`
+		Drop            int                        `json:"drop_remaining"`
+		Requests        int64                      `json:"request_count"`
+		Effects         int64                      `json:"effect_count"`
+		OperationCounts []store.DemoOperationCount `json:"operation_counts"`
 	}
 	items := []summary{}
 	for _, code := range codes {

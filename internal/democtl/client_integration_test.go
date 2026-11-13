@@ -150,3 +150,135 @@ func TestCommandsActualAPIAndReceiversPostgreSQL(t *testing.T) {
 		}
 	}
 }
+
+func TestRunOutageObservationRecoversBeforeRetryBudgetExhaustion(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	db, err := testutil.NewDatabase(ctx, t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.Apply(ctx, db.Pool, filepath.Join(root, "migrations")); err != nil {
+		t.Fatal(err)
+	}
+	s := settings(t)
+	if err = store.Seed(ctx, db.Pool, s.Registry()); err != nil {
+		t.Fatal(err)
+	}
+	controls := map[string]string{}
+	for _, code := range []string{"fulfillment", "notification"} {
+		h := receiver.New(store.NewDemoRepository(db.Pool, code), signing.Auth{Keys: testKeys{}}, testToken, time.Second)
+		control := httptest.NewServer(h.Control())
+		defer control.Close()
+		controls[code] = control.URL
+		webhook := httptest.NewServer(h.Webhook())
+		defer webhook.Close()
+		if _, err = db.Pool.Exec(ctx, `UPDATE destinations SET url=$1 WHERE code=$2`, webhook.URL+"/webhook", code); err != nil {
+			t.Fatal(err)
+		}
+	}
+	apiServer := httptest.NewServer(api.NewHandler(s, store.NewAPIReadRepository(db.Pool)))
+	defer apiServer.Close()
+	c := New(s, Endpoints{API: apiServer.URL, Controls: controls})
+	c.PollInterval = time.Millisecond
+
+	scenarioID, err := c.createScenario(ctx, "retry_before_exhaustion", "both", "http_503", "on")
+	if err != nil {
+		t.Fatal("create outage scenario:", err)
+	}
+	if err = c.recoverScenario(ctx, scenarioID, "notification"); err != nil {
+		t.Fatal("recover notification before publishing:", err)
+	}
+	eventID, _, err := c.publishScenario(ctx, scenarioID, "retry-before-exhaustion-order", []string{"fulfillment", "notification"})
+	if err != nil {
+		t.Fatal("publish event:", err)
+	}
+
+	claims, err := store.NewClaimRepository(db.Pool, 30*time.Second, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalizer, err := store.NewFinalizationRepository(db.Pool, time.Second, delivery.Policy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender, err := delivery.NewHTTPSender(signing.Auth{Keys: testKeys{}}, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sender.Close()
+	claimed, err := claims.ClaimDue(ctx, 2)
+	if err != nil || len(claimed) != 2 {
+		t.Fatalf("initial claims=%d err=%v, want two fan-out deliveries", len(claimed), err)
+	}
+	var fulfillmentDeliveryID string
+	for _, claim := range claimed {
+		sent := sender.Send(ctx, claim)
+		finalized, finalizeErr := finalizer.Finalize(ctx, claim, sent)
+		if finalizeErr != nil {
+			t.Fatal("finalize first fan-out attempt:", finalizeErr)
+		}
+		if sent.Outcome == delivery.HTTPFailure {
+			fulfillmentDeliveryID = claim.DeliveryID
+		}
+		if sent.Outcome == delivery.HTTPFailure && (sent.HTTPStatus == nil || *sent.HTTPStatus != 503 || finalized.Status != "pending") {
+			t.Fatalf("fulfillment did not persist a retryable 503: result=%+v finalized=%+v", sent, finalized)
+		}
+		if sent.Outcome == delivery.Acknowledged && finalized.Status != "succeeded" {
+			t.Fatalf("notification did not succeed independently: result=%+v finalized=%+v", sent, finalized)
+		}
+	}
+	if fulfillmentDeliveryID == "" {
+		t.Fatal("neither fan-out delivery received the controlled fulfillment 503")
+	}
+	observed, err := c.getEvent(ctx, eventID)
+	if err != nil {
+		t.Fatal("read first persisted attempt:", err)
+	}
+	fulfillment, ok := observed.delivery("fulfillment")
+	if !ok || fulfillment.Status != "pending" || !hasHTTPFailure(fulfillment, 503) {
+		t.Fatalf("first 503 did not leave one pending retry: %+v", fulfillment)
+	}
+	notification, ok := observed.delivery("notification")
+	if !ok || notification.Status != "succeeded" {
+		t.Fatalf("notification did not succeed while fulfillment was unavailable: %+v", notification)
+	}
+
+	if err = c.recoverScenario(ctx, scenarioID, "fulfillment"); err != nil {
+		t.Fatal("recover fulfillment:", err)
+	}
+	update, err := db.Pool.Exec(ctx, `UPDATE deliveries SET next_attempt_at=clock_timestamp() WHERE id=$1 AND status='pending' AND cycle_attempt_count=1`, fulfillmentDeliveryID)
+	if err != nil || update.RowsAffected() != 1 {
+		t.Fatalf("schedule the isolated pending retry in the test database: rows=%d err=%v", update.RowsAffected(), err)
+	}
+	claimed, err = claims.ClaimDue(ctx, 2)
+	if err != nil || len(claimed) != 1 || claimed[0].DeliveryID != fulfillmentDeliveryID {
+		t.Fatalf("recovery claims=%d err=%v, want the one pending fulfillment delivery", len(claimed), err)
+	}
+	sent := sender.Send(ctx, claimed[0])
+	finalized, err := finalizer.Finalize(ctx, claimed[0], sent)
+	if err != nil || sent.Outcome != delivery.Acknowledged || finalized.Status != "succeeded" {
+		t.Fatalf("recovered fulfillment result=%+v finalized=%+v err=%v", sent, finalized, err)
+	}
+
+	final, err := c.getEvent(ctx, eventID)
+	if err != nil {
+		t.Fatal("read final event state:", err)
+	}
+	fulfillment, _ = final.delivery("fulfillment")
+	notification, _ = final.delivery("notification")
+	if fulfillment.Status != "succeeded" || fulfillment.CycleNo != 1 || fulfillment.LifetimeAttemptCount != 2 || notification.Status != "succeeded" || notification.LifetimeAttemptCount != 1 {
+		t.Fatalf("retry-before-exhaustion state was not preserved: fulfillment=%+v notification=%+v", fulfillment, notification)
+	}
+	for _, code := range []string{"fulfillment", "notification"} {
+		summaries, inspectErr := c.inspectScenario(ctx, scenarioID, code)
+		wantRequests := map[string]int64{"fulfillment": 2, "notification": 1}[code]
+		if inspectErr != nil || len(summaries) != 1 || summaries[0].RequestCount != wantRequests || summaries[0].EffectCount != 1 || len(summaries[0].OperationCounts) != 1 || summaries[0].OperationCounts[0].OperationID != map[string]string{"fulfillment": fulfillment.ID, "notification": notification.ID}[code] || summaries[0].OperationCounts[0].RequestCount != wantRequests || summaries[0].OperationCounts[0].EffectCount != 1 {
+			t.Fatalf("persisted %s request/effect counts=%+v err=%v", code, summaries, inspectErr)
+		}
+	}
+}

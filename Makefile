@@ -1,7 +1,7 @@
 GO ?= go
 NPM ?= npm
 
-.PHONY: doctor build test test-race test-integration test-crash vet web-check web-api-smoke compose-smoke init-env seed up down
+.PHONY: doctor build test test-race test-integration test-crash vet web-check web-api-smoke compose-smoke demo demo-recording init-env seed up down
 
 doctor:
 	@sh ./scripts/doctor.sh
@@ -42,6 +42,12 @@ web-api-smoke:
 
 compose-smoke:
 	python3 ./scripts/compose-smoke.py
+
+demo:
+	sh ./scripts/demo.sh
+
+demo-recording:
+	bash ./scripts/demo-recording.sh
 
 init-env:
 	sh ./scripts/init-env.sh
