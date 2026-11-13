@@ -7,6 +7,8 @@ import type {
   ReplayResponseDto,
 } from "./dto";
 
+export const API_REQUEST_TIMEOUT_MS = 10_000;
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -91,6 +93,11 @@ export class ApiClient {
     init: RequestInit,
   ): Promise<T> {
     const request = session.beginRequest(signal);
+    let timedOut = false;
+    const deadline = window.setTimeout(() => {
+      timedOut = true;
+      request.abort();
+    }, API_REQUEST_TIMEOUT_MS);
     try {
       const headers = new Headers(init.headers);
       headers.set("Authorization", `Bearer ${request.token}`);
@@ -114,6 +121,9 @@ export class ApiClient {
       try {
         result = await response.json();
       } catch {
+        if (request.signal.aborted) {
+          throw new DOMException("The request was aborted.", "AbortError");
+        }
         throw new ApiError("The API returned an invalid response.", response.status);
       }
       if (request.signal.aborted) {
@@ -124,10 +134,14 @@ export class ApiClient {
       }
       return result;
     } catch (error) {
+      // Caller/session cancellation remains an abort. A deadline is uncertain
+      // network failure so write actions retain their original body and key.
+      if (timedOut) throw new ApiError("The API request timed out. Try again.", null);
       if (error instanceof ApiError) throw error;
       if (request.signal.aborted || isAbortError(error)) throw error;
       throw new ApiError("The API is unavailable. Check the local server and try again.", null);
     } finally {
+      window.clearTimeout(deadline);
       request.release();
     }
   }

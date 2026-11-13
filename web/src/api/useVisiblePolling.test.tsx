@@ -1,5 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { API_REQUEST_TIMEOUT_MS, ApiClient } from "./apiClient";
+import { session } from "../auth/memorySession";
 import { useVisiblePolling } from "./useVisiblePolling";
 
 function setVisibility(state: "visible" | "hidden"): void {
@@ -17,6 +19,8 @@ describe("useVisiblePolling", () => {
   });
 
   afterEach(() => {
+    session.logout(null);
+    vi.unstubAllGlobals();
     setVisibility("visible");
     vi.useRealTimers();
   });
@@ -122,4 +126,27 @@ describe("useVisiblePolling", () => {
     });
     expect(poll).toHaveBeenCalledTimes(3);
   });
+  it("reports a timed-out API poll as disconnected and recovers on the next bounded retry", async () => {
+    session.login("poll-timeout-token");
+    const fetchMock = vi.fn()
+      .mockImplementationOnce((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [], next_cursor: null }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new ApiClient();
+    const { result, unmount } = renderHook(() => useVisiblePolling(async (signal) => {
+      await client.getEvents(20, undefined, signal);
+    }, true));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(result.current).toBe("polling");
+    await act(async () => { await vi.advanceTimersByTimeAsync(API_REQUEST_TIMEOUT_MS); });
+    expect(result.current).toBe("disconnected");
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current).toBe("connected");
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
 });

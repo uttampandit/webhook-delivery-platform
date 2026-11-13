@@ -1,8 +1,52 @@
-import { describe, expect, it, vi } from "vitest";
-import { ApiClient } from "./apiClient";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { API_REQUEST_TIMEOUT_MS, ApiClient } from "./apiClient";
 import { session } from "../auth/memorySession";
 
 describe("ApiClient", () => {
+  afterEach(() => {
+    session.logout(null);
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it.each(["headers", "body"])("times out stalled response %s and releases its deadline", async (phase) => {
+    vi.useFakeTimers();
+    session.login("timeout-test-token");
+    let requestSignal: AbortSignal | undefined;
+    vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      requestSignal = init?.signal ?? undefined;
+      const stalled = new Promise<never>((_resolve, reject) => {
+        requestSignal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      });
+      return phase === "headers" ? stalled : Promise.resolve({ ok: true, status: 200, json: () => stalled });
+    }));
+    const pending = new ApiClient().getDestinations();
+    const rejected = expect(pending).rejects.toMatchObject({ name: "ApiError", status: null });
+    await vi.advanceTimersByTimeAsync(API_REQUEST_TIMEOUT_MS);
+    await rejected;
+    expect(requestSignal?.aborted).toBe(true);
+    expect(session.getSnapshot().authenticated).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(["headers", "body"])("preserves caller cancellation during %s and clears the request deadline", async (phase) => {
+    vi.useFakeTimers();
+    session.login("cancel-test-token");
+    vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      const stalled = new Promise<never>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      });
+      return phase === "headers" ? stalled : Promise.resolve({ ok: true, status: 200, json: () => stalled });
+    }));
+    const controller = new AbortController();
+    const pending = new ApiClient().getDestinations(controller.signal);
+    const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    await Promise.resolve();
+    controller.abort();
+    await rejected;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("sends the in-memory bearer token and returns destination DTOs", async () => {
     session.login("only-in-memory");
     vi.stubGlobal(

@@ -1,6 +1,7 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { API_REQUEST_TIMEOUT_MS } from "../api/apiClient";
 import { session } from "../auth/memorySession";
 import { CreateEvent } from "./CreateEvent";
 
@@ -31,6 +32,7 @@ describe("CreateEvent", () => {
     cleanup();
     session.logout(null);
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("retries exact request bytes and key after response loss, then gives an edit a new key", async () => {
@@ -143,4 +145,28 @@ describe("CreateEvent", () => {
     );
     expect(JSON.stringify(screen.getByRole("status").textContent)).not.toContain("create-event-test-token");
   });
+  it("retains exact bytes and key when a request deadline expires", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockImplementationOnce((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      }))
+      .mockResolvedValueOnce(acceptedResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CreateEvent destinations={destinations} onOpenEvent={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Existing scenario ID"), { target: { value: "scenario-blue" } });
+    fireEvent.change(screen.getByLabelText("Order ID"), { target: { value: "order-timeout" } });
+    fireEvent.click(screen.getByLabelText("fulfillment"));
+    submitForm();
+    await act(async () => { await vi.advanceTimersByTimeAsync(API_REQUEST_TIMEOUT_MS); });
+    const retry = screen.getByRole("button", { name: "Retry same submission" });
+    await act(async () => { fireEvent.click(retry); });
+    expect(screen.getByText("Accepted for processing.")).toBeTruthy();
+    const first = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const second = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect(second.body).toBe(first.body);
+    expect(new Headers(second.headers).get("Idempotency-Key")).toBe(new Headers(first.headers).get("Idempotency-Key"));
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
 });

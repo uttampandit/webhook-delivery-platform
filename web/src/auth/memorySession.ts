@@ -7,6 +7,7 @@ export type SessionSnapshot = {
 type RequestLease = {
   token: string;
   signal: AbortSignal;
+  abort: () => void;
   release: () => void;
 };
 
@@ -67,6 +68,7 @@ export class MemorySession {
     return {
       token: this.token,
       signal: controller.signal,
+      abort: () => controller.abort(),
       release: () => {
         if (released) return;
         released = true;
