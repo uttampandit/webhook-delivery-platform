@@ -15,6 +15,8 @@ state/.compose-smoke-event.json
 !/docs/failure-postmortem.md
 !/docs/interview.md
 !/docs/competitors.md
+!/docs/release-checklist.md
+!/docs/deployment-plan.md
 !/learning/PROJECT_EXPLAINED.md
 !/learning/WALKTHROUGH.md
 !/learning/EXERCISES.md
@@ -51,6 +53,9 @@ artifacts/demo/demo_20261112T084454Z_29c3f4e31768/*
 !/artifacts/demo/demo_20261112T084528Z_f826c0717306/
 artifacts/demo/demo_20261112T084528Z_f826c0717306/*
 !/artifacts/demo/demo_20261112T084528Z_f826c0717306/report.json
+!/artifacts/demo/demo_20261112T115454Z_545b754d33f9/
+artifacts/demo/demo_20261112T115454Z_545b754d33f9/*
+!/artifacts/demo/demo_20261112T115454Z_545b754d33f9/report.json
 !/artifacts/demo/crash/
 artifacts/demo/crash/*
 !/artifacts/demo/crash/task19-make-test-crash.log

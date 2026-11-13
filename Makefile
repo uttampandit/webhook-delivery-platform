@@ -1,7 +1,7 @@
 GO ?= go
 NPM ?= npm
 
-.PHONY: doctor build test test-race test-integration test-crash vet web-check web-api-smoke compose-smoke demo demo-recording benchmark init-env seed up down
+.PHONY: doctor build test test-race test-integration test-crash vet web-check web-api-smoke compose-smoke demo demo-recording benchmark init-env seed up down verify
 
 BENCHMARK_EVENTS ?= 200
 BENCHMARK_PRODUCER_CONCURRENCY ?= 4
@@ -78,3 +78,6 @@ up:
 
 down:
 	docker compose down --timeout 15
+
+verify:
+	sh ./scripts/verify.sh

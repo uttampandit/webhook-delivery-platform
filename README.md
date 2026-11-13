@@ -2,7 +2,7 @@
 
 A local backend project for accepting events, delivering signed webhooks to independent destinations, recovering abandoned work, and replaying exhausted deliveries.
 
-The backend, local demo, finite local benchmark, and candidate-facing implementation guides are documented through **Task 27**, with a subsequent correctness review and regression fixes. **Tasks 20–22 add a memory-only authenticated dashboard, stable event pagination, per-destination delivery timelines, synthetic event creation, and dead-delivery replay controls**. This is a synthetic, single-operator learning project—not a production multi-tenant service.
+The backend, local demo, finite local benchmark, and candidate-facing implementation guides are documented through **Task 28**. **Tasks 20–22 add a memory-only authenticated dashboard, stable event pagination, per-destination delivery timelines, synthetic event creation, and dead-delivery replay controls**. The final release audit covers a reproducible local setup; see the [release checklist](docs/release-checklist.md) and separate [deployment plan](docs/deployment-plan.md). This is a synthetic, single-operator learning project—not a production multi-tenant service.
 
 ## What it does
 
@@ -36,7 +36,7 @@ Real PostgreSQL and HTTP/process tests cover concurrency, rollback, signing, ind
 
 Recover an outage scenario using authenticated `PATCH /control/scenarios/{id}` with `{"mode":"normal"}`. Dedupe cannot change; a consumed drop cannot be rearmed. HTTP 503/429 modes record rejection before effects and return `Retry-After: 2`.
 
-The dashboard provides token entry/logout, a local API connection status, configured destination codes, cursor-paginated events, event detail, synthetic `order.confirmed` creation, and replay for dead deliveries. Create retries preserve the serialized request bytes and idempotency key after an uncertain response; editing a field starts a new request identity. Replay status says when work is scheduled, not delivered, and a 409 reloads current delivery state. Payloads render as escaped text and uncertainty remains visible. The token exists only in page memory, so a refresh requires re-entry. Creating a scenario still uses `democtl`; the browser does not change receiver controls or accept arbitrary destination URLs. The full local Compose runtime serves the built UI and keeps receiver/control/metrics listeners on the internal network. `make demo` runs five fresh failure stories and saves sanitized reports; see [the recorded demo](docs/demo.md). Task 26 records three bounded local benchmark runs with reconciled events, attempts, and receiver effects; see [the measured report](docs/benchmark.md). Task 27 adds candidate-facing [architecture](docs/architecture.md), [operations](docs/operations.md), [limitations](docs/limitations.md), [failure analysis](docs/failure-postmortem.md), [interview preparation](docs/interview.md), and a sourced [competitor capability map](docs/competitors.md). Task 28, the final release audit, remains incomplete. Measurements describe only the recorded finite local workload; there are no sustainable-capacity, adoption, or production-readiness claims.
+The dashboard provides token entry/logout, a local API connection status, configured destination codes, cursor-paginated events, event detail, synthetic `order.confirmed` creation, and replay for dead deliveries. Create retries preserve the serialized request bytes and idempotency key after an uncertain response; editing a field starts a new request identity. Replay status says when work is scheduled, not delivered, and a 409 reloads current delivery state. Payloads render as escaped text and uncertainty remains visible. The token exists only in page memory, so a refresh requires re-entry. Creating a scenario still uses `democtl`; the browser does not change receiver controls or accept arbitrary destination URLs. The full local Compose runtime serves the built UI and keeps receiver/control/metrics listeners on the internal network. `make demo` runs five fresh failure stories and saves sanitized reports; see [the recorded demo](docs/demo.md). Task 26 records three bounded local benchmark runs with reconciled events, attempts, and receiver effects; see [the measured report](docs/benchmark.md). Task 27 adds candidate-facing [architecture](docs/architecture.md), [operations](docs/operations.md), [limitations](docs/limitations.md), [failure analysis](docs/failure-postmortem.md), [interview preparation](docs/interview.md), and a sourced [competitor capability map](docs/competitors.md). Task 28 adds the repeatable local release gate and states that hosting is separate and not requested. Measurements describe only the recorded finite local workload; there are no sustainable-capacity, adoption, or production-readiness claims.
 
 ## Stack and prerequisites
 
@@ -72,6 +72,8 @@ See [benchmark definitions, limits, and measured evidence](docs/benchmark.md). I
 - [Reproduced worker-death postmortem](docs/failure-postmortem.md)
 - [Interview study guide and ownership notes](docs/interview.md)
 - [Competitor capability map with sources](docs/competitors.md)
+- [Local release checklist](docs/release-checklist.md)
+- [Deployment plan and hosting status](docs/deployment-plan.md)
 
 Compose seeds a separate `webhook_compose_dev` database so it does not overwrite destination URLs already stored in the older `webhook_dev` host-mode database. Both databases live in the same named PostgreSQL volume. To stop the normal local runtime while keeping data, run:
 
@@ -93,6 +95,17 @@ bash scripts/demo-recording.sh
 The recording helper writes the unedited command and output transcript beneath `artifacts/demo/recording-*/`. For a shortened walkthrough, use prepared report IDs and label any cuts around real retry/backoff waits. Keep the browser recording paused while entering the API token. For individual control, publish, wait, and replay operations, see [the demo walkthrough](docs/demo.md); replay requires an explicit nonsecret request key, and wait checks every selected delivery before reporting the requested state.
 
 ## Verification
+
+For the complete clean-room release gate, create a private `.env` if needed, then run:
+
+```sh
+make init-env # only if .env does not already exist
+make verify
+```
+
+`make verify` requires Docker and Compose. It creates a uniquely named project with a new PostgreSQL volume and loopback ports, runs real integration and crash suites against isolated `webhook_test_<hex>` databases, exercises all five demo stories, and checks the Compose stack again after `make down` / `make up`. It removes that project's containers at the end but keeps its volume, consistent with the normal data-preserving `make down` behavior. It does not change the regular local Compose project or publish/deploy anything. See the [recorded release gates](docs/release-checklist.md).
+
+For individual checks while developing:
 
 ```sh
 make doctor

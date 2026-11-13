@@ -119,7 +119,10 @@ def democtl(*args, timeout=30):
 
 
 def assert_previous_event_retained():
-    marker = os.path.join(ROOT, "state", ".compose-smoke-event.json")
+    marker = os.environ.get(
+        "COMPOSE_SMOKE_MARKER",
+        os.path.join(ROOT, "state", ".compose-smoke-event.json"),
+    )
     if not os.path.exists(marker):
         return
     try:
@@ -149,7 +152,10 @@ def assert_previous_event_retained():
 
 
 def main():
-    marker = os.path.join(ROOT, "state", ".compose-smoke-event.json")
+    marker = os.environ.get(
+        "COMPOSE_SMOKE_MARKER",
+        os.path.join(ROOT, "state", ".compose-smoke-event.json"),
+    )
     worker_stopped = False
     try:
         config, _, api_token = validate_compose_config()
