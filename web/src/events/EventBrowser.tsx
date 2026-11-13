@@ -78,7 +78,7 @@ function EventListView({
     setEvents(value);
   }
 
-  function acceptLatestPage(page: EventListDto): void {
+  function acceptLatestPage(page: EventListDto, refreshedItems: EventListItemDto[]): void {
     latestPage.current = page;
     setLoading(false);
     setErrorMessage("");
@@ -93,7 +93,7 @@ function EventListView({
     if (page.items.some((event) => !visibleIds.has(event.id))) {
       setNewEventsAvailable(true);
     }
-    const freshItems = new Map(page.items.map((event) => [event.id, event]));
+    const freshItems = new Map(refreshedItems.map((event) => [event.id, event]));
     updateEvents(
       eventsRef.current.map((event) => freshItems.get(event.id) ?? event),
     );
@@ -105,7 +105,8 @@ function EventListView({
       requestLocked.current = true;
       try {
         const page = await apiClient.getEvents(PAGE_SIZE, undefined, signal);
-        acceptLatestPage(page);
+        const refreshed = await refreshDisplayedEvents(page.items, eventsRef.current, signal);
+        if (!signal.aborted) acceptLatestPage(page, refreshed);
       } catch (error) {
         if (signal.aborted) return;
         setLoading(false);
@@ -220,6 +221,45 @@ function EventListView({
       ) : null}
     </div>
   );
+}
+
+// The list endpoint refreshes the newest window. Use existing detail reads for
+// displayed rows outside it, retaining only summaries and at most four active
+// requests. This keeps paging positions stable even after many new arrivals.
+async function refreshDisplayedEvents(
+  newest: EventListItemDto[],
+  displayed: EventListItemDto[],
+  signal: AbortSignal,
+): Promise<EventListItemDto[]> {
+  const refreshed = [...newest];
+  const newestIds = new Set(newest.map((event) => event.id));
+  const missing = displayed.filter((event) => !newestIds.has(event.id));
+  let failed = false;
+  let failure: unknown;
+  await Promise.all(Array.from({ length: Math.min(4, missing.length) }, async () => {
+    while (!signal.aborted && !failed) {
+      const event = missing.shift();
+      if (!event) return;
+      try {
+        const detail = await apiClient.getEvent(event.id, signal);
+        refreshed.push({
+          ...event,
+          deliveries: detail.deliveries.map((delivery) => ({
+            id: delivery.id,
+            destination_code: delivery.destination_code,
+            status: delivery.status,
+            has_unconfirmed_attempts: delivery.has_unconfirmed_attempts,
+          })),
+        });
+      } catch (error) {
+        failed = true;
+        failure = error;
+      }
+    }
+  }));
+  // All started reads have settled before the poll releases its request lock.
+  if (failed) throw failure;
+  return refreshed;
 }
 
 function EventDetailView({

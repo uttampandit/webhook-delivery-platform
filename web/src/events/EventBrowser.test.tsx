@@ -26,6 +26,17 @@ function listItem(id: string, status = "pending", uncertain = false): EventListI
   };
 }
 
+function detailFromItem(item: EventListItemDto): EventDetailDto {
+  return {
+    ...item, payload: {},
+    deliveries: item.deliveries.map((delivery) => ({
+      ...delivery, operation_id: delivery.id, cycle_no: 1, cycle_attempt_count: 1,
+      lifetime_attempt_count: 1, max_attempts: 5, next_attempt_at: null, lease_until: null,
+      confirmed_at: null, terminal_reason: null, attempts: [], replays: [],
+    })),
+  };
+}
+
 function listPage(items: EventListItemDto[], nextCursor: string | null) {
   return { items, next_cursor: nextCursor };
 }
@@ -152,6 +163,9 @@ describe("EventBrowser", () => {
     const updated = [listItem(idA), listItem(id9, "succeeded", true), listItem(id8)];
     const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
       const path = String(input);
+      if (path.startsWith("/v1/events/")) {
+        return Promise.resolve(new Response(JSON.stringify(detailFromItem(listItem(id7))), { status: 200 }));
+      }
       if (path.includes("cursor=")) {
         return Promise.resolve(new Response(JSON.stringify(listPage([listItem(id7)], null)), { status: 200 }));
       }
@@ -329,4 +343,74 @@ describe("EventBrowser", () => {
     );
     expect(screen.queryByText(/raw connection stack|internal stack secret/)).toBeNull();
   });
+  it("refreshes older and displaced rows without changing their order or paging cursor", async () => {
+    let changed = false;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      let value: unknown;
+      if (path.startsWith("/v1/events/")) {
+        const id = path.slice("/v1/events/".length);
+        value = detailFromItem(listItem(id, "succeeded", true));
+      } else if (path.includes("cursor=")) {
+        value = listPage([listItem(id7)], "older-next");
+      } else {
+        value = changed ? listPage([listItem(idA, "succeeded")], "new-head-cursor") : listPage([listItem(id9)], "initial-cursor");
+      }
+      return Promise.resolve(new Response(JSON.stringify(value), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<EventBrowser />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Load older events" })); });
+    expect(screen.getAllByText("fulfillment: Pending")).toHaveLength(2);
+    changed = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(screen.queryAllByText("fulfillment: Pending")).toHaveLength(0);
+    expect(screen.getAllByText("fulfillment: Acknowledged")).toHaveLength(2);
+    expect(screen.getAllByText("Earlier effect uncertain")).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /View order.confirmed/ }).map((button) => button.getAttribute("aria-label"))).toEqual([
+      `View order.confirmed, event ${id9.slice(0, 8)}`,
+      `View order.confirmed, event ${id7.slice(0, 8)}`,
+    ]);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Load older events" })); });
+    expect(fetchMock).toHaveBeenCalledWith("/v1/events?limit=20&cursor=older-next", expect.any(Object));
+  });
+
+  it("bounds older-row refresh concurrency and cancels pending reads on unmount", async () => {
+    const olderIds = Array.from({ length: 6 }, (_, index) => `older-event-${index}`);
+    const pending: { signal: AbortSignal; resolve: () => void }[] = [];
+    let listRequests = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.startsWith("/v1/events/")) {
+        const id = path.slice("/v1/events/".length);
+        return new Promise<Response>((resolve, reject) => {
+          const signal = init?.signal as AbortSignal;
+          signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+          pending.push({ signal, resolve: () => resolve(new Response(JSON.stringify(detailFromItem(listItem(id, "succeeded"))), { status: 200 })) });
+        });
+      }
+      listRequests += 1;
+      const body = path.includes("cursor=")
+        ? listPage(olderIds.map((id) => listItem(id)), null)
+        : listPage([listItem(id9)], "older-cursor");
+      return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { unmount } = render(<EventBrowser />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Load older events" })); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(pending).toHaveLength(4);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(listRequests).toBe(3);
+    expect(pending).toHaveLength(4);
+    await act(async () => { for (const request of pending.slice(0, 4)) request.resolve(); });
+    expect(pending).toHaveLength(6);
+    unmount();
+    expect(pending.slice(4).every((request) => request.signal.aborted)).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
 });
