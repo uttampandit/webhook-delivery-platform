@@ -72,8 +72,16 @@ export function CreateEvent({
       setValidationMessage("Enter both an existing scenario ID and an order ID.");
       return;
     }
-    if (!Number.isSafeInteger(parsedQuantity) || parsedQuantity < 1) {
-      setValidationMessage("Quantity must be a positive whole number.");
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(normalizedScenario)) {
+      setValidationMessage("Scenario ID must be 1–64 letters, digits, underscores, or hyphens.");
+      return;
+    }
+    if (Array.from(normalizedOrder).length > 128) {
+      setValidationMessage("Order ID must be at most 128 characters.");
+      return;
+    }
+    if (!Number.isSafeInteger(parsedQuantity) || parsedQuantity < 1 || parsedQuantity > 100000) {
+      setValidationMessage("Quantity must be a whole number from 1 to 100000.");
       return;
     }
     if (destinationIds.length < 1 || destinationIds.length > 2) {
@@ -167,7 +175,7 @@ export function CreateEvent({
             autoComplete="off"
             disabled={isSending || destinations.length === 0}
             id="scenario-id"
-            maxLength={128}
+            maxLength={64}
             onChange={(event) => edit(setScenarioId, event.currentTarget.value)}
             required
             value={scenarioId}
@@ -187,6 +195,7 @@ export function CreateEvent({
             disabled={isSending || destinations.length === 0}
             id="event-quantity"
             min="1"
+            max="100000"
             onChange={(event) => edit(setQuantity, event.currentTarget.value)}
             required
             step="1"

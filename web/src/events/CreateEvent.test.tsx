@@ -103,7 +103,7 @@ describe("CreateEvent", () => {
     fireEvent.change(screen.getByLabelText("Order ID"), { target: { value: "order-17" } });
     fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "0" } });
     submitForm();
-    expect(screen.getByText("Quantity must be a positive whole number.")).toBeTruthy();
+    expect(screen.getByText("Quantity must be a whole number from 1 to 100000.")).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "1" } });
@@ -167,6 +167,44 @@ describe("CreateEvent", () => {
     expect(second.body).toBe(first.body);
     expect(new Headers(second.headers).get("Idempotency-Key")).toBe(new Headers(first.headers).get("Idempotency-Key"));
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    { scenario: "valid", quantity: "100001", order: "order", message: "Quantity must be a whole number from 1 to 100000." },
+    { scenario: "valid", quantity: "1.5", order: "order", message: "Quantity must be a whole number from 1 to 100000." },
+    { scenario: "x".repeat(65), quantity: "1", order: "order", message: "Scenario ID must be 1–64 letters, digits, underscores, or hyphens." },
+    { scenario: "bad/scenario", quantity: "1", order: "order", message: "Scenario ID must be 1–64 letters, digits, underscores, or hyphens." },
+    { scenario: "bad scenario", quantity: "1", order: "order", message: "Scenario ID must be 1–64 letters, digits, underscores, or hyphens." },
+    { scenario: "valid", quantity: "1", order: "x".repeat(129), message: "Order ID must be at most 128 characters." },
+  ])("rejects receiver-invalid form values before submitting: $scenario / $quantity", ({ scenario, quantity, order, message }) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CreateEvent destinations={destinations} onOpenEvent={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Existing scenario ID"), { target: { value: scenario } });
+    fireEvent.change(screen.getByLabelText("Order ID"), { target: { value: order } });
+    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: quantity } });
+    fireEvent.click(screen.getByLabelText("fulfillment"));
+    submitForm();
+    expect(screen.getByRole("alert").textContent).toBe(message);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts the receiver's upper bounds for synthetic event fields", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(acceptedResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CreateEvent destinations={destinations} onOpenEvent={vi.fn()} />);
+    const scenario = `A_-${"x".repeat(61)}`;
+    const order = "o".repeat(128);
+    fireEvent.change(screen.getByLabelText("Existing scenario ID"), { target: { value: scenario } });
+    fireEvent.change(screen.getByLabelText("Order ID"), { target: { value: order } });
+    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "100000" } });
+    fireEvent.click(screen.getByLabelText("fulfillment"));
+    await act(async () => { submitForm(); });
+    expect(screen.getByText("Accepted for processing.")).toBeTruthy();
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(request.body as string).payload).toEqual({
+      scenario_id: scenario, order_id: order, quantity: 100000,
+    });
   });
 
 });
