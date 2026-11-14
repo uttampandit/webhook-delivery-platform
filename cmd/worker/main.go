@@ -99,7 +99,7 @@ func run() error {
 	reaperDone := make(chan struct{})
 	go func() {
 		defer close(reaperDone)
-		delivery.RunReaper(ctx, recovery, settings.DBStatementTimeout(), metrics)
+		delivery.RunReaper(ctx, recovery, settings.ReaperInterval(), settings.DBStatementTimeout(), metrics)
 	}()
 	err = worker.Run(ctx)
 	stop()

@@ -4,7 +4,9 @@ import (
 	"context"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/uttampandit/webhook-delivery-platform/internal/telemetry"
@@ -36,7 +38,7 @@ func TestReaperCountsCommittedRecoveryResults(t *testing.T) {
 		RunReaper(ctx, detailedRecoverFunc(func(context.Context) (int, int, error) {
 			cancel()
 			return 3, 1, nil
-		}), time.Second, metrics)
+		}), time.Second, time.Second, metrics)
 	}()
 	select {
 	case <-done:
@@ -88,7 +90,7 @@ func TestReaperWhileWorkerBusyAndCancellation(t *testing.T) {
 			reaped <- struct{}{}
 			<-work.Done()
 			return 0, work.Err()
-		}), 2*time.Second)
+		}), time.Second, 2*time.Second)
 	}()
 	select {
 	case <-reaped:
@@ -108,5 +110,50 @@ func TestReaperWhileWorkerBusyAndCancellation(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("worker shutdown blocked")
+	}
+}
+
+// Virtual time verifies exact cadence without depending on host scheduling or
+// replacing the real ticker with a mock.
+func TestReaperConfiguredCadence(t *testing.T) {
+	for _, interval := range []time.Duration{25 * time.Millisecond, 3 * time.Second} {
+		t.Run(interval.String(), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				var calls atomic.Int64
+				const timeout = 100 * time.Millisecond
+				go RunReaper(ctx, recoverFunc(func(work context.Context) (int, error) {
+					calls.Add(1)
+					deadline, ok := work.Deadline()
+					if !ok || time.Until(deadline) != timeout {
+						t.Error("recovery did not receive its configured independent timeout")
+					}
+					return 0, nil
+				}), interval, timeout)
+				synctest.Wait()
+				time.Sleep(interval - time.Nanosecond)
+				synctest.Wait()
+				if calls.Load() != 0 {
+					t.Fatalf("recovery ran before configured tick: %d", calls.Load())
+				}
+				time.Sleep(time.Nanosecond)
+				synctest.Wait()
+				if calls.Load() != 1 {
+					t.Fatalf("first configured tick: got %d calls", calls.Load())
+				}
+				time.Sleep(interval)
+				synctest.Wait()
+				if calls.Load() != 2 {
+					t.Fatalf("second configured tick: got %d calls", calls.Load())
+				}
+				cancel()
+				synctest.Wait()
+				time.Sleep(2 * interval)
+				if calls.Load() != 2 {
+					t.Fatalf("recovery continued after cancellation: %d", calls.Load())
+				}
+			})
+		})
 	}
 }

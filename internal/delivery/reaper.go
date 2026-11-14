@@ -17,9 +17,10 @@ type DetailedRecoverer interface {
 }
 
 // RunReaper runs independently of send capacity. Each transaction gets a fresh
-// bounded context; cancellation stops the tick and cancels active recovery.
-func RunReaper(ctx context.Context, repository Recoverer, timeout time.Duration, metrics ...*telemetry.Metrics) {
-	tick := time.NewTicker(time.Second)
+// bounded context; interval comes from the validated worker settings.
+// Cancellation stops the tick and cancels active recovery.
+func RunReaper(ctx context.Context, repository Recoverer, interval, timeout time.Duration, metrics ...*telemetry.Metrics) {
+	tick := time.NewTicker(interval)
 	defer tick.Stop()
 	for {
 		select {
