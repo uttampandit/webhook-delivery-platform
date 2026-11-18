@@ -1,6 +1,6 @@
 # Architecture and delivery guarantees
 
-This is a local learning implementation of a webhook sender, operator dashboard, and two synthetic receivers. The configured destinations are fixed; the project is not a customer-facing multi-tenant service.
+This is a local implementation of a webhook sender, operator dashboard, and two synthetic receivers. The configured destinations are fixed; the project is not a customer-facing multi-tenant service.
 
 ## Components
 

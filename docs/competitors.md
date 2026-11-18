@@ -16,6 +16,6 @@ The product boundaries differ: this project is a local synthetic sender/receiver
 
 ## What this comparison does and does not say
 
-The local project demonstrates a narrow end-to-end contract: atomic acceptance, independent delivery rows, persisted attempts, lease recovery, stale-write fencing, replay audit, and an example receiver-side dedupe transaction. The vendor docs describe broader products with configurable sources, endpoints, portals, destinations, and/or hosting choices. That scope difference is intentional in this learning kit.
+The local project demonstrates a narrow end-to-end contract: atomic acceptance, independent delivery rows, persisted attempts, lease recovery, stale-write fencing, replay audit, and an example receiver-side dedupe transaction. The vendor docs describe broader products with configurable sources, endpoints, portals, destinations, and/or hosting choices. That scope difference is intentional in this implementation.
 
 This matrix does not claim the local project is better, cheaper, novel, or commercially competitive. It does not infer a missing vendor feature from the existing kit's scope, and it does not claim a service's advertised reliability or scale was independently tested here.

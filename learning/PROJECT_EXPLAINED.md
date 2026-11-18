@@ -1,6 +1,6 @@
-# Understand the project before reading the code
+# Project design explained
 
-This guide explains the current design through Task 27. The dashboard, full Compose runtime, actual worker-death tests, failure demos, and finite benchmark are implemented and linked from the [README](../README.md). Passing implementation tests does not prove a learner understands these explanations.
+This guide explains event acceptance, delivery, and recovery in the local platform. The dashboard, Compose runtime, worker-crash tests, failure scenarios, and finite benchmark are linked from the [README](../README.md).
 
 ## Start with one order
 
@@ -89,12 +89,10 @@ Earlier unconfirmed attempts remain visible after a later success. A currently r
 
 ## Why these technologies?
 
-Go provides explicit HTTP behavior, cancellation and concurrent workers. PostgreSQL gives us atomic storage and row locking without introducing a second queue system. React makes the operational timeline easy to use. Compose provides a local reproducible environment. The project does not need an AI feature to demonstrate useful engineering in an AI-heavy job market.
+Go provides explicit HTTP behavior, cancellation and concurrent workers. PostgreSQL gives us atomic storage and row locking without introducing a second queue system. React makes the operational timeline easy to use. Compose provides a local reproducible environment.
 
 Kafka or Redis could be discussed as alternatives later. Adding another system now would introduce coordination and operational work before measurements justify it. The [three finite benchmark runs](../docs/benchmark.md) provide bounded local evidence, not a maximum-throughput or scale result.
 
-## Learn in small stages
+## Explore the implementation
 
-After Task 07, explain how acceptance avoids duplicate ingest. After Task 13, trace one signed delivery. After Task 19, explain worker death and the duplicate-effect window. After Task 22, use the dashboard and replay. After Task 26, explain measured results and their limits. Task 27 adds the sourced [competitor map](../docs/competitors.md) and [interview study guide](../docs/interview.md); use them to guide research and practice, not as evidence of personal understanding.
-
-Use [WALKTHROUGH.md](WALKTHROUGH.md) for those milestones, [EXERCISES.md](EXERCISES.md) for experiments, and an optional local `learning/LEARNING_LOG.md` notebook for questions (not published). You should eventually be able to trace the code and make a small change; memorizing this explanation is not the same as understanding the implementation.
+Use the [request and recovery walkthrough](WALKTHROUGH.md) to follow the delivery lifecycle and the [failure scenarios](EXERCISES.md) to inspect uncertainty and deduplication. The [implementation overview](../docs/interview.md) connects the design decisions to source files, tests, and recorded results.

@@ -1,6 +1,6 @@
 # Current limitations
 
-This repository is a local, synthetic learning project. The checks and benchmark establish behavior only for the tested code, Compose configuration, PostgreSQL instance, and local receiver processes.
+This repository is a local webhook platform with synthetic receivers. The checks and benchmark establish behavior only for the tested code, Compose configuration, PostgreSQL instance, and local receiver processes.
 
 ## Product and operations
 

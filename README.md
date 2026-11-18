@@ -2,7 +2,7 @@
 
 A local backend project for accepting events, delivering signed webhooks to independent destinations, recovering abandoned work, and replaying exhausted deliveries.
 
-The backend, local demo, finite local benchmark, and candidate-facing implementation guides are documented through **Task 28**. **Tasks 20–22 add a memory-only authenticated dashboard, stable event pagination, per-destination delivery timelines, synthetic event creation, and dead-delivery replay controls**. The final release audit covers a reproducible local setup; see the [release checklist](docs/release-checklist.md) and separate [deployment plan](docs/deployment-plan.md). This is a synthetic, single-operator learning project—not a production multi-tenant service.
+The platform includes an authenticated dashboard, per-destination delivery timelines, synthetic event creation, and dead-delivery replay controls. Docker Compose runs the API, worker, PostgreSQL, and two synthetic receivers locally. Real process-crash tests, reproducible failure scenarios, and a finite benchmark document its behavior; see the [release checklist](docs/release-checklist.md) and [deployment plan](docs/deployment-plan.md). The current configuration supports one operator and fixed destinations.
 
 ## What it does
 
@@ -36,7 +36,7 @@ Real PostgreSQL and HTTP/process tests cover concurrency, rollback, signing, ind
 
 Recover an outage scenario using authenticated `PATCH /control/scenarios/{id}` with `{"mode":"normal"}`. Dedupe cannot change; a consumed drop cannot be rearmed. HTTP 503/429 modes record rejection before effects and return `Retry-After: 2`.
 
-The dashboard provides token entry/logout, a local API connection status, configured destination codes, cursor-paginated events, event detail, synthetic `order.confirmed` creation, and replay for dead deliveries. Create retries preserve the serialized request bytes and idempotency key after an uncertain response; editing a field starts a new request identity. Replay status says when work is scheduled, not delivered, and a 409 reloads current delivery state. Payloads render as escaped text and uncertainty remains visible. The token exists only in page memory, so a refresh requires re-entry. Creating a scenario still uses `democtl`; the browser does not change receiver controls or accept arbitrary destination URLs. The full local Compose runtime serves the built UI and keeps receiver/control/metrics listeners on the internal network. `make demo` runs five fresh failure stories and saves sanitized reports; see [the recorded demo](docs/demo.md). Task 26 records three bounded local benchmark runs with reconciled events, attempts, and receiver effects; see [the measured report](docs/benchmark.md). Task 27 adds candidate-facing [architecture](docs/architecture.md), [operations](docs/operations.md), [limitations](docs/limitations.md), [failure analysis](docs/failure-postmortem.md), [interview preparation](docs/interview.md), and a sourced [competitor capability map](docs/competitors.md). Task 28 adds the repeatable local release gate and states that hosting is separate and not requested. Measurements describe only the recorded finite local workload; there are no sustainable-capacity, adoption, or production-readiness claims.
+The dashboard provides token entry/logout, a local API connection status, configured destination codes, cursor-paginated events, event detail, synthetic `order.confirmed` creation, and replay for dead deliveries. Create retries preserve the serialized request bytes and idempotency key after an uncertain response; editing a field starts a new request identity. Replay status says when work is scheduled, not delivered, and a 409 reloads current delivery state. Payloads render as escaped text and uncertainty remains visible. The token exists only in page memory, so a refresh requires re-entry. Creating a scenario still uses `democtl`; the browser does not change receiver controls or accept arbitrary destination URLs. The full local Compose runtime serves the built UI and keeps receiver/control/metrics listeners on the internal network. `make demo` runs five fresh failure stories and saves sanitized reports; see [the recorded demo](docs/demo.md). The benchmark report records three bounded local runs with reconciled events, attempts, and receiver effects; see [the measured report](docs/benchmark.md). The project guides cover [architecture](docs/architecture.md), [operations](docs/operations.md), [limitations](docs/limitations.md), [failure analysis](docs/failure-postmortem.md), [implementation overview](docs/interview.md), and a sourced [competitor capability map](docs/competitors.md). The repeatable local release gate verifies the Compose runtime; public hosting is separate and has not been configured. Measurements describe only the recorded finite local workload; there are no sustainable-capacity, adoption, or production-readiness claims.
 
 ## Stack and prerequisites
 
@@ -70,7 +70,7 @@ See [benchmark definitions, limits, and measured evidence](docs/benchmark.md). I
 - [Local operations](docs/operations.md)
 - [Current limitations](docs/limitations.md)
 - [Reproduced worker-death postmortem](docs/failure-postmortem.md)
-- [Interview study guide and ownership notes](docs/interview.md)
+- [Implementation overview and design decisions](docs/interview.md)
 - [Competitor capability map with sources](docs/competitors.md)
 - [Local release checklist](docs/release-checklist.md)
 - [Deployment plan and hosting status](docs/deployment-plan.md)
@@ -133,12 +133,10 @@ An independent public HMAC fixture is reproducible with:
 python3 internal/signing/testdata/vector.py
 ```
 
-## Learn the design
+## Design walkthroughs
 
 - [Project explained in everyday language](learning/PROJECT_EXPLAINED.md)
-- [Walkthrough by implementation milestone](learning/WALKTHROUGH.md)
-- [Prediction questions and safe experiments](learning/EXERCISES.md)
+- [Request and recovery walkthrough](learning/WALKTHROUGH.md)
+- [Failure scenarios and experiments](learning/EXERCISES.md)
 
-The guides distinguish implemented behavior from later experiments. A useful starting question: an event has two deliveries and one fails—why should the healthy receiver's effect remain independent?
-
-This repository began as a portable, ordered implementation kit. The local kit also contains task cards, specs, resume/teaching prompts and progress/evidence files for ongoing sessions; these private working documents are not part of the published README bundle. The overview and learning guides are public, while personal notes, agent instructions and scheduling state stay local. Passing tests provides implementation evidence, not proof of a learner's understanding.
+These guides trace event acceptance, signed delivery, recovery, and replay through the implementation. The experiments use isolated databases or fresh synthetic scenarios to reproduce failure boundaries.

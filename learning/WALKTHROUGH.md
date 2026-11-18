@@ -1,37 +1,23 @@
-# Explain the project as you build it
+# Request and recovery walkthrough
 
-Current implementation checkpoint: Task 27. The crash, dashboard, demo, and benchmark sections below link to implemented code and recorded checks. This guide is an explanation aid, not evidence that a candidate understands the code. See the [README](../README.md) for available commands and [interview preparation](../docs/interview.md) for an evidence-led narrative outline.
+Follow an event from acceptance to delivery, then inspect the failure boundaries using the linked implementation and recorded tests. See the [README](../README.md) for runtime commands and the [implementation overview](../docs/interview.md) for design decisions.
 
-Read the matching section after the named task. The implementation agent should answer using the actual source and tests; these are expected explanations, not a claim of candidate mastery.
+## Event acceptance
 
-## After07 — acceptance boundary
+An authenticated request passes validation and raw-byte hashing before the ingest transaction stores the event and its deliveries. HTTP 202 follows the commit. If the response is lost, retrying the same key and bytes retrieves the original event. Different bytes conflict. See [event acceptance](../internal/store/events.go).
 
-Trace one authenticated request through validation, raw-byte hashing and the ingest transaction. Identify the exact commit before202. What can the client know if its response is lost? Why does retrying the same key/bytes resolve that uncertainty? Show the unique constraint and the separate conflict-path SELECT. Explain why a process-local map or an external queue publish after commit changes the failure boundary.
+## Signed delivery
 
-## After13 — one delivery
+The worker claims a delivery, persists a running attempt, and commits before sending signed HTTP. The operation ID stays stable across retries; timestamps and signatures belong to individual requests. Destinations progress independently. A persisted attempt does not prove the request reached its receiver. See [claims](../internal/store/claims.go) and [worker](../internal/delivery/worker.go).
 
-Trace event→delivery→claim→running attempt→signed POST→receiver ledger/effect→finalization. Show actual IDs and stored bytes. Explain why HTTP runs after the claim transaction ends. Show the stable operation ID versus per-attempt timestamp/signature. Why can one destination fail while the other succeeds? Explain why a persisted attempt does not prove the request was sent.
+## Failure and recovery
 
-## After19 — failure and recovery
+A worker can die after claim or after receiver commit. Once its lease expires, recovery preserves the attempt as unconfirmed and schedules another claim when budget remains. Generation and token checks reject stale finalization. An already-issued request can still reach the receiver, so receiver-side deduplication must share the business-effect transaction. See [crash tests](../tests/crash/crash_test.go) and the [failure postmortem](../docs/failure-postmortem.md).
 
-Show the two actual crash test outputs. Draw the lost-response/crash window between external effect and sender finalization. Explain what the lease permits, why a generation/token is needed, and exactly what it does not prevent. Show a stale write rejected while an extra HTTP request remains possible. Explain dedupe enabled/off counts and why idempotency belongs in the receiver's business transaction.
+## Operator recovery
 
-## After22 — operator experience
+The dashboard shows dead deliveries, earlier uncertain attempts, and replay history. Replay opens a new cycle and preserves the operation ID. An uncertain event submission preserves its exact bytes and ingest key for retry. The API token stays in memory and must be entered again after a refresh. See [local operations](../docs/operations.md).
 
-Use the UI to inspect one dead delivery, its earlier uncertain attempts and replay audit. Explain why a replay keeps the operation ID and why successful-operation resend is a distinct omitted feature. Demonstrate preserving ingest bytes/key after a failed browser request. Explain why an API token is held in memory and what the single-operator security limit is.
+## Measurements and trade-offs
 
-## After26 — measurements
-
-Run a small benchmark and explain every numerator/denominator. Distinguish accepted events, delivery rows, persisted attempts, actual receiver requests and effects. Why is the finite closed-loop run not a maximum throughput claim? Point to actual raw samples, environment and limits. Identify one measured bottleneck before discussing an optimization.
-
-## After27 — explain ownership honestly
-
-Use [the architecture guide](../docs/architecture.md), [failure postmortem](../docs/failure-postmortem.md), [limitations](../docs/limitations.md), and [competitor map](../docs/competitors.md). Separate repository evidence from what you personally implemented, reviewed, and can explain. Be clear that the code and documentation were created with AI assistance; do not claim the tests prove candidate mastery.
-
-## Final interview narrative
-
-Prepare a 90-second introduction and a five-minute architecture discussion using current evidence. A useful sequence is: synthetic user outcome; acceptance transaction; independent deliveries; one difficult failure experiment; trade-off; measured result; honest limitation. Include AI assistance honestly if asked. Do not imply you independently designed/coded every line if that is inaccurate.
-
-Expected trade-off discussions: PostgreSQL queue versus a separate broker; fixed destinations versus general egress controls; bounded retries versus guaranteed delivery; lease without heartbeat versus long-running jobs; receiver-local transaction versus distributed exactly-once claims; local single operator versus production SaaS; retained keys/ledgers versus cleanup complexity.
-
-Create docs/interview.md only from actual code/results. “I haven't implemented that” is a valid answer about HA, disaster recovery, destination management, multi-tenancy or public auth.
+The [benchmark report](../docs/benchmark.md) distinguishes accepted events, deliveries, attempts, receiver requests, and effects. The finite workload does not establish maximum sustainable throughput. PostgreSQL provides durable scheduling alongside event storage, while the single host, fixed destinations, bounded attempts, and retained records define the current operational limits. See [architecture](../docs/architecture.md), [limitations](../docs/limitations.md), and the [capability map](../docs/competitors.md).

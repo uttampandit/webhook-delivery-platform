@@ -1,6 +1,6 @@
 # Local release checklist
 
-**Status:** Local release gates passed 2026-11-12. Hosting is separate and not requested. Candidate understanding remains unassessed.
+**Status:** Local release gates passed 2026-11-12. Hosting is separate and not requested.
 
 This checklist records evidence for the local, synthetic project only. Hosting has a separate status in [the deployment plan](deployment-plan.md). The release command creates a fresh Compose project and PostgreSQL volume, runs the actual PostgreSQL integration and crash suites, and then checks a demo and a second smoke run after `make down` / `make up`. It keeps that verification volume when the containers stop.
 
@@ -30,7 +30,6 @@ This checklist records evidence for the local, synthetic project only. Hosting h
 | Repository, runtime image files, frontend asset, and Compose logs secret review | Passed; scanner emitted no secret values |
 | Event/effect retention across Compose restart | Passed; second smoke run retained the earlier event and one committed effect per receiver |
 | Documentation, relative links, and diff review | Passed; local claims match implementation and evidence; link check and `git diff --check` passed |
-| Candidate understanding of acceptance vs. external effect and fencing limits | **Not assessed**; exercises are available, but test results cannot establish personal understanding |
 
 ## Review boundary
 
@@ -38,4 +37,4 @@ The release command created its fresh Compose stack, ran `make test-integration`
 
 The repository, the built image filesystem, the served frontend bundle, and the active Compose logs were checked against values in the local `.env`; the scan never prints those values. Compose checks the resolved and running port bindings: only API and PostgreSQL are published, both on loopback, while receiver control, metrics, and receiver ports remain private. These checks describe the tested local configuration; they do not prove host security outside this Compose project.
 
-The release review also checks that README, demo, benchmark, and interview statements match the implementation and linked evidence. The finite benchmark reports remain workload measurements, not capacity or production-readiness claims. An unanswered learning exercise remains candidate-owned evidence.
+The release review also checks that README, demo, benchmark, and implementation overview match the implementation and linked evidence. The finite benchmark reports remain workload measurements, not capacity or production-readiness claims.
