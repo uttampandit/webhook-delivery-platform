@@ -67,6 +67,8 @@ export type EventDetailDto = {
   type: string;
   created_at: string;
   payload: unknown;
+  // Client-only formatted text retained from the exact response JSON.
+  payloadText?: string;
   deliveries: EventDeliveryDetailDto[];
 };
 

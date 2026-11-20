@@ -128,6 +128,7 @@ function EventListView({
     manualRequest.current = controller;
     try {
       const page = await apiClient.getEvents(PAGE_SIZE, nextCursor, controller.signal);
+      if (controller.signal.aborted || manualRequest.current !== controller) return;
       const currentIds = new Set(eventsRef.current.map((event) => event.id));
       const appended = page.items.filter((event) => !currentIds.has(event.id));
       updateEvents([...eventsRef.current, ...appended]);
@@ -146,6 +147,13 @@ function EventListView({
   function showLatestPage(): void {
     const page = latestPage.current;
     if (page === null) return;
+    const controller = manualRequest.current;
+    if (controller !== null) {
+      manualRequest.current = null;
+      controller.abort();
+      requestLocked.current = false;
+      setLoadingOlder(false);
+    }
     hasFirstPage.current = true;
     updateEvents(page.items);
     setNextCursor(page.next_cursor);
@@ -363,7 +371,7 @@ function EventDetail({
   event: EventDetailDto;
   onReplayConflict: () => void;
 }) {
-  const formattedPayload = JSON.stringify(event.payload, null, 2) ?? "null";
+  const formattedPayload = event.payloadText ?? JSON.stringify(event.payload, null, 2) ?? "null";
   return (
     <article className="event-detail">
       <header className="detail-header">

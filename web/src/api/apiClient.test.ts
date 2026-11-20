@@ -47,6 +47,22 @@ describe("ApiClient", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("bounds a stalled exact-payload response body with the request deadline", async () => {
+    vi.useFakeTimers();
+    session.login("payload-deadline-test");
+    vi.stubGlobal("fetch", vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      const stalled = new Promise<never>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      });
+      return Promise.resolve({ ok: true, status: 200, text: () => stalled });
+    }));
+    const pending = new ApiClient().getEvent("event-id");
+    const rejected = expect(pending).rejects.toMatchObject({ name: "ApiError", status: null });
+    await vi.advanceTimersByTimeAsync(API_REQUEST_TIMEOUT_MS);
+    await rejected;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("sends the in-memory bearer token and returns destination DTOs", async () => {
     session.login("only-in-memory");
     vi.stubGlobal(

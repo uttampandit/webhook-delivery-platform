@@ -17,6 +17,7 @@ export default function App() {
   const [destinations, setDestinations] = useState<DestinationDto[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [loadMessage, setLoadMessage] = useState("");
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
 
   useEffect(() => {
     if (!sessionSnapshot.authenticated) {
@@ -30,7 +31,7 @@ export default function App() {
     let cancelled = false;
     setDestinations([]);
     setLoadState("loading");
-    setLoadMessage("");
+    setLoadMessage(connectionAttempt === 0 ? "Connecting to the API…" : "Reconnecting to the API…");
     const unregisterClearer = session.registerCacheClearer(() => {
       setDestinations([]);
       setLoadState("idle");
@@ -59,12 +60,13 @@ export default function App() {
       controller.abort();
       unregisterClearer();
     };
-  }, [sessionSnapshot]);
+  }, [sessionSnapshot, connectionAttempt]);
 
   function submitToken(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     const token = tokenInput.trim();
     if (token.length === 0) return;
+    setConnectionAttempt(0);
     session.login(token);
     setTokenInput("");
   }
@@ -96,10 +98,15 @@ export default function App() {
         <section aria-labelledby="workspace-heading" className="workspace">
           <h2 id="workspace-heading">Workspace</h2>
           <p aria-live="polite" className="status" role="status">
-            {loadState === "loading" ? "Connecting to the API…" : null}
+            {loadState === "loading" ? loadMessage : null}
             {loadState === "loaded" ? "Connected to the API." : null}
             {loadState === "error" ? loadMessage : null}
           </p>
+          {loadState === "error" ? (
+            <button className="secondary-button" onClick={() => setConnectionAttempt((attempt) => attempt + 1)} type="button">
+              Retry connection
+            </button>
+          ) : null}
           {loadState === "loaded" ? (
             <>
               <section aria-labelledby="destinations-heading" className="destination-section">

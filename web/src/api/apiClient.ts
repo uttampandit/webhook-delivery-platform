@@ -1,3 +1,4 @@
+import { formatResponsePayload } from "./jsonPayload";
 import { session } from "../auth/memorySession";
 import type {
   DestinationListDto,
@@ -35,7 +36,7 @@ export class ApiClient {
   }
 
   async getEvent(eventId: string, signal?: AbortSignal): Promise<EventDetailDto> {
-    return this.getJson(`/v1/events/${encodeURIComponent(eventId)}`, isEventDetail, signal);
+    return this.requestJson(`/v1/events/${encodeURIComponent(eventId)}`, isEventDetail, signal, { method: "GET" }, true);
   }
 
   async createEvent(
@@ -91,6 +92,7 @@ export class ApiClient {
     validate: (value: unknown) => value is T,
     signal: AbortSignal | undefined,
     init: RequestInit,
+    preservePayload = false,
   ): Promise<T> {
     const request = session.beginRequest(signal);
     let timedOut = false;
@@ -119,7 +121,15 @@ export class ApiClient {
 
       let result: unknown;
       try {
-        result = await response.json();
+        if (preservePayload) {
+          const source = await response.text();
+          const parsed: unknown = JSON.parse(source);
+          result = isRecord(parsed) && "payload" in parsed
+            ? { ...parsed, payloadText: formatResponsePayload(source) }
+            : parsed;
+        } else {
+          result = await response.json();
+        }
       } catch {
         if (request.signal.aborted) {
           throw new DOMException("The request was aborted.", "AbortError");
