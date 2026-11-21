@@ -17,9 +17,9 @@ import (
 // HTTPSender uses a private transport: no environment proxy, redirect following,
 // connection reuse/hidden retries or transparent decompression.
 type HTTPSender struct {
-	auth    signing.Auth
-	client  *http.Client
-	timeout time.Duration
+	auth      signing.Auth
+	transport http.RoundTripper
+	timeout   time.Duration
 }
 
 func NewHTTPSender(auth signing.Auth, timeout time.Duration) (*HTTPSender, error) {
@@ -27,9 +27,13 @@ func NewHTTPSender(auth signing.Auth, timeout time.Duration) (*HTTPSender, error
 		return nil, ErrInvalidResult
 	}
 	transport := &http.Transport{Proxy: nil, DialContext: (&net.Dialer{Timeout: 2 * time.Second}).DialContext, TLSHandshakeTimeout: 2 * time.Second, DisableKeepAlives: true, DisableCompression: true, ResponseHeaderTimeout: timeout, MaxResponseHeaderBytes: 16 * 1024}
-	return &HTTPSender{auth, &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, timeout}, nil
+	return &HTTPSender{auth: auth, transport: transport, timeout: timeout}, nil
 }
-func (s *HTTPSender) Close() { s.client.CloseIdleConnections() }
+func (s *HTTPSender) Close() {
+	if transport, ok := s.transport.(interface{ CloseIdleConnections() }); ok {
+		transport.CloseIdleConnections()
+	}
+}
 func (s *HTTPSender) Send(ctx context.Context, c ClaimedDelivery) SendResult {
 	start := time.Now()
 	local := func(code string) SendResult {
@@ -61,7 +65,9 @@ func (s *HTTPSender) Send(ctx context.Context, c ClaimedDelivery) SendResult {
 	req.ContentLength = int64(len(c.WireBody))
 	req.GetBody = nil
 	req.Header = headers
-	response, err := s.client.Do(req)
+	// A single round trip preserves the response status even if Location is
+	// malformed. The HTTP client parses Location before checking redirect policy.
+	response, err := s.transport.RoundTrip(req)
 	elapsed := time.Since(start) // Header-roundtrip latency, not response-body latency.
 	if err != nil {
 		code := "network_error"

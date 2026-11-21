@@ -124,10 +124,12 @@ func TestListEventsRejectsInvalidLimitAndCursor(t *testing.T) {
 	handler := NewHandler(testSettings(t), &testRepository{})
 
 	for _, query := range []string{
+		"?limit=",
 		"?limit=0",
 		"?limit=101",
 		"?limit=abc",
 		"?limit=-1",
+		"?cursor=",
 		"?cursor=!!!invalid!!!",
 		"?cursor=" + strings.Repeat("x", 513), // over MaxCursorBytes
 	} {

@@ -16,7 +16,7 @@ import (
 )
 
 type Repository interface {
-	Ping(context.Context) error
+	CheckReadiness(context.Context) error
 	CreateScenario(context.Context, string, string, bool) (bool, error)
 	Inspect(context.Context, string) (store.DemoScenario, error)
 	Apply(context.Context, string, store.DemoEnvelope) (store.DemoResult, error)
@@ -73,7 +73,7 @@ func (h *Handler) Webhook() http.Handler {
 func (h *Handler) Control() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
-		if h.repo.Ping(r.Context()) != nil {
+		if h.repo.CheckReadiness(r.Context()) != nil {
 			http.Error(w, "not_ready", 503)
 			return
 		}

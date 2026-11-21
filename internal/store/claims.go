@@ -11,6 +11,19 @@ import (
 )
 
 const MaxClaimSlots = 32 // Same bound as configured worker concurrency.
+
+// A statement-stable DB cutoff lets PostgreSQL bound the due index scan.
+// Lease timestamps still come from the clock after candidate rows are locked.
+const selectDueDeliveries = `
+	SELECT id::text
+	FROM deliveries
+	WHERE status = 'pending'
+	  AND next_attempt_at <= statement_timestamp()
+	  AND cycle_attempt_count < max_attempts
+	ORDER BY next_attempt_at, id
+	LIMIT $1
+	FOR UPDATE SKIP LOCKED`
+
 var (
 	ErrClaimUnavailable   = errors.New("claim store unavailable")
 	ErrClaimCommitUnknown = errors.New("claim commit outcome is unknown")
@@ -48,7 +61,7 @@ func (r *ClaimRepository) ClaimDue(ctx context.Context, freeSlots int) ([]delive
 	}
 	defer tx.Rollback(ctx)
 	// Lock only deliveries, never the event rows used later for send data.
-	rows, err := tx.Query(ctx, `SELECT id::text FROM deliveries WHERE status='pending' AND next_attempt_at<=clock_timestamp() AND cycle_attempt_count<max_attempts ORDER BY next_attempt_at,id LIMIT $1 FOR UPDATE SKIP LOCKED`, freeSlots)
+	rows, err := tx.Query(ctx, selectDueDeliveries, freeSlots)
 	if err != nil {
 		return nil, ErrClaimUnavailable
 	}

@@ -286,6 +286,43 @@ func TestWorkerSignedVerticalSliceAndIndependentDestination(t *testing.T) {
 	}
 	stop()
 }
+func TestWorkerRecordsRedirectWithMalformedLocation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	t.Cleanup(cancel)
+	db := workerDB(t, ctx)
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Location", "/unparseable%")
+		w.WriteHeader(http.StatusFound)
+	}))
+	t.Cleanup(server.Close)
+	fixtureRegistry(t, ctx, db.Pool, server.URL, server.URL)
+	event := ingestWorkerEvent(t, ctx, db.Pool, []string{config.FulfillmentDestination})
+	startWorker(t, ctx, db)
+
+	var status string
+	awaitWorker(t, ctx, func() bool {
+		if err := db.Pool.QueryRow(ctx, `SELECT status FROM deliveries WHERE event_id=$1`, event).Scan(&status); err != nil {
+			t.Fatal(err)
+		}
+		return status == "dead"
+	})
+	var reason string
+	var attempts, redirectFailures int
+	if err := db.Pool.QueryRow(ctx, `
+		SELECT d.terminal_reason, count(*),
+		       count(*) FILTER (WHERE a.http_status=302 AND a.outcome='http_failure')
+		FROM deliveries d JOIN attempts a ON a.delivery_id=d.id
+		WHERE d.event_id=$1 GROUP BY d.terminal_reason`, event).Scan(&reason, &attempts, &redirectFailures); err != nil {
+		t.Fatal(err)
+	}
+	if reason != "permanent_http" || attempts != 1 || redirectFailures != 1 || calls.Load() != 1 {
+		t.Fatalf("reason=%s attempts=%d 302 failures=%d calls=%d", reason, attempts, redirectFailures, calls.Load())
+	}
+}
+
 func TestWorkerSIGTERMCancelsAndPersistsAttempt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)

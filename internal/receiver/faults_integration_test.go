@@ -97,6 +97,25 @@ func claim(url, id string) delivery.ClaimedDelivery {
 	return delivery.ClaimedDelivery{DeliveryID: operation, URLSnapshot: url + "/webhook", KeyRefSnapshot: "public-test-v1", WireBody: body(id)}
 }
 
+func TestReceiverReadinessRequiresMigrations(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	db, err := testutil.NewDatabase(ctx, t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := receiver.New(store.NewDemoRepository(db.Pool, "fulfillment"), signing.Auth{Keys: keys{}}, publicToken, time.Second)
+	server := httptest.NewServer(h.Control())
+	defer server.Close()
+
+	control(t, ctx, server.URL, http.MethodGet, "/health/ready", "", http.StatusServiceUnavailable)
+	if err := store.Apply(ctx, db.Pool, "../../migrations"); err != nil {
+		t.Fatal(err)
+	}
+	control(t, ctx, server.URL, http.MethodGet, "/health/ready", "", http.StatusOK)
+	create(t, ctx, server.URL, "readiness_control", "normal", true, http.StatusCreated)
+}
+
 func TestCommitDropSocketAndDedupePostgreSQL(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

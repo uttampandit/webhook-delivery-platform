@@ -99,9 +99,10 @@ func (server *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse limit.
+	query := r.URL.Query()
 	limit := store.DefaultPageLimit
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
+	if query.Has("limit") {
+		n, err := strconv.Atoi(query.Get("limit"))
 		if err != nil || n < 1 || n > store.MaxPageLimit {
 			writeError(w, r, codeInvalidRequest)
 			return
@@ -111,12 +112,8 @@ func (server *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Parse cursor.
 	var cursor *store.EventCursor
-	if raw := r.URL.Query().Get("cursor"); raw != "" {
-		if len(raw) > store.MaxCursorBytes {
-			writeError(w, r, codeInvalidRequest)
-			return
-		}
-		c, err := store.DecodeCursor(raw)
+	if query.Has("cursor") {
+		c, err := store.DecodeCursor(query.Get("cursor"))
 		if err != nil {
 			writeError(w, r, codeInvalidRequest)
 			return

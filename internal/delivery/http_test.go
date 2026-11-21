@@ -52,7 +52,7 @@ func TestSignedHTTPExactBodyAndNoRedirect(t *testing.T) {
 	if result.Outcome != HTTPFailure || result.HTTPStatus == nil || *result.HTTPStatus != 302 || redirected.Load() != 0 {
 		t.Fatal(result, "redirect followed")
 	}
-	tr := s.client.Transport.(*http.Transport)
+	tr := s.transport.(*http.Transport)
 	if tr.Proxy != nil || !tr.DisableKeepAlives || !tr.DisableCompression || tr.TLSHandshakeTimeout != 2*time.Second || tr.MaxResponseHeaderBytes != 16*1024 {
 		t.Fatal("unsafe transport defaults")
 	}
@@ -178,7 +178,7 @@ func (b *countedBody) Close() error { b.closed = true; return nil }
 func TestHTTPTransportBoundaryDisposalCapAndNoReplayBody(t *testing.T) {
 	s := testHTTPSender(t, time.Second)
 	body := &countedBody{}
-	s.client.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
+	s.transport = transportFunc(func(r *http.Request) (*http.Response, error) {
 		if r.GetBody != nil {
 			t.Error("transport can replay request body")
 		}

@@ -18,7 +18,20 @@ type DemoRepository struct {
 func NewDemoRepository(pool *pgxpool.Pool, code string) *DemoRepository {
 	return &DemoRepository{pool, code}
 }
-func (d *DemoRepository) Ping(ctx context.Context) error { return d.pool.Ping(ctx) }
+
+// CheckReadiness requires the tables used by receiver operations.
+func (d *DemoRepository) CheckReadiness(ctx context.Context) error {
+	var ready bool
+	err := d.pool.QueryRow(ctx, `
+		SELECT to_regclass('demo_scenarios') IS NOT NULL
+		   AND to_regclass('demo_requests') IS NOT NULL
+		   AND to_regclass('demo_dedup') IS NOT NULL
+		   AND to_regclass('demo_effects') IS NOT NULL`).Scan(&ready)
+	if err != nil || !ready {
+		return ErrDemoUnavailable
+	}
+	return nil
+}
 
 type DemoOperationCount struct {
 	OperationID  string `json:"operation_id"`

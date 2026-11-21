@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,6 +103,55 @@ func awaitClaimState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql 
 			t.Fatal("database barrier deadline")
 		case <-tick.C:
 		}
+	}
+}
+
+func TestClaimSelectionBoundsFutureDeliveriesByIndex(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	pool, claims, ids := claimFixture(t, ctx, 1)
+	claimExec(t, ctx, pool, `
+		WITH original AS (
+			SELECT e.* FROM events e JOIN deliveries d ON d.event_id=e.id WHERE d.id=$1
+		), copies AS (
+			INSERT INTO events (id,tenant_id,idempotency_key,request_body,request_hash,event_type,wire_body)
+			SELECT gen_random_uuid(),tenant_id,'future-' || n,request_body,request_hash,event_type,wire_body
+			FROM original CROSS JOIN generate_series(1,4999) AS series(n)
+			RETURNING id,tenant_id
+		)
+		INSERT INTO deliveries (id,tenant_id,event_id,destination_id,url_snapshot,key_ref_snapshot,next_attempt_at)
+		SELECT gen_random_uuid(),c.tenant_id,c.id,d.destination_id,d.url_snapshot,d.key_ref_snapshot,
+		       statement_timestamp()+interval '1 hour'
+		FROM copies c CROSS JOIN deliveries d WHERE d.id=$1`, ids[0])
+	claimExec(t, ctx, pool, `UPDATE deliveries SET next_attempt_at=statement_timestamp()+interval '1 hour' WHERE id=$1`, ids[0])
+	claimExec(t, ctx, pool, `ANALYZE deliveries`)
+
+	rows, err := pool.Query(ctx, "EXPLAIN (ANALYZE, COSTS OFF) "+selectDueDeliveries, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var plan strings.Builder
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			t.Fatal(err)
+		}
+		plan.WriteString(line + "\n")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan.String(), "Index Cond: (next_attempt_at <=") {
+		t.Fatalf("due time must bound the pending index scan:\n%s", plan.String())
+	}
+	if claimed := mustClaim(t, ctx, claims, 4); len(claimed) != 0 {
+		t.Fatalf("claimed %d future deliveries", len(claimed))
+	}
+
+	claimExec(t, ctx, pool, `UPDATE deliveries SET next_attempt_at=clock_timestamp()-interval '1 second' WHERE id=$1`, ids[0])
+	if claimed := mustClaim(t, ctx, claims, 4); len(claimed) != 1 || claimed[0].DeliveryID != ids[0] {
+		t.Fatal("expected to claim only the due delivery")
 	}
 }
 
@@ -315,7 +365,13 @@ func TestClaimDuePostgreSQL(t *testing.T) {
 		}
 		done := make(chan result, 1)
 		go func() { c, e := r.ClaimDue(ctx, 1); done <- result{c, e} }()
-		awaitClaimState(t, ctx, pool, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT id::text FROM deliveries%')`)
+		awaitClaimState(t, ctx, pool, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_locks
+				WHERE locktype='relation' AND relation='deliveries'::regclass
+				  AND database=(SELECT oid FROM pg_database WHERE datname=current_database())
+				  AND NOT granted
+			)`)
 		var releasedAfter time.Time
 		if err = blocker.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&releasedAfter); err != nil {
 			t.Fatal(err)
