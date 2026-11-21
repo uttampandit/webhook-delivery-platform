@@ -46,10 +46,12 @@ async function paginationSetup() {
   session.login("synthetic-test-token");
   let polls = 0;
   let finishOlder: ((r: Response) => void) | null = null;
-  const fetchMock = vi.fn((input: RequestInfo | URL) => {
+  let olderSignal: AbortSignal | null | undefined;
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
     if (path.includes("cursor=after-21"))
       return new Promise<Response>((resolve) => {
+        olderSignal = init?.signal;
         finishOlder = resolve;
       });
     if (path.includes("cursor=after-41"))
@@ -77,6 +79,7 @@ async function paginationSetup() {
     await vi.advanceTimersByTimeAsync(2000);
   });
   return {
+    signal: () => olderSignal,
     finish: async () => {
       await act(async () => {
         if (!finishOlder) throw Error("older request never started");
@@ -122,6 +125,26 @@ it("discards stale pagination results and retains all intervening events", async
   await pending.finish();
   expect(visibleIds()).toHaveLength(60);
   expect(new Set(visibleIds()).size).toBe(60);
+});
+
+it("cancels the older page on navigation and can retry it after returning", async () => {
+  const pending = await paginationSetup();
+  const originalIds = visibleIds();
+  fireEvent.click(screen.getByRole("button", { name: "Load older events" }));
+  const signal = pending.signal();
+  expect(signal?.aborted).toBe(false);
+
+  fireEvent.click(screen.getByRole("button", { name: `View order.confirmed, event ${id(40).slice(0, 8)}` }));
+  expect(signal?.aborted).toBe(true);
+  await pending.finish();
+  fireEvent.click(screen.getByRole("button", { name: /Back to events/ }));
+  await drain();
+  expect(visibleIds()).toEqual(originalIds);
+
+  fireEvent.click(screen.getByRole("button", { name: "Load older events" }));
+  expect(pending.signal()).not.toBe(signal);
+  await pending.finish();
+  expect(visibleIds()).toHaveLength(40);
 });
 async function connectAfterFailure() {
   let online = false;

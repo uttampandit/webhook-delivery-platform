@@ -149,8 +149,10 @@ export function CreateEvent({
         Send an <code>order.confirmed</code> event to one or both fixed destinations.
         An accepted event is queued for delivery; acceptance does not mean a receiver acknowledged it.
       </p>
-      <p className="scenario-help">
-        Use an existing scenario, or create one with <code>democtl scenario create --id example --receiver both --mode normal --dedupe on</code>.
+      <p className="scenario-help" id="scenario-help">
+        Use an existing scenario or create one from the project directory with{" "}
+        <code>docker compose exec -T api /app/democtl scenario create --id example --receiver both --mode normal --dedupe on</code>.
+        Paste the full <code>scenario_id</code> returned by the command, including its generated suffix.
       </p>
 
       {accepted ? (
@@ -172,6 +174,7 @@ export function CreateEvent({
         <form className="create-event-form" onSubmit={(event) => void submit(event)}>
           <label htmlFor="scenario-id">Existing scenario ID</label>
           <input
+            aria-describedby="scenario-help"
             autoComplete="off"
             disabled={isSending || destinations.length === 0}
             id="scenario-id"

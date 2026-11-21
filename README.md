@@ -87,6 +87,12 @@ make down
 
 `democtl` is included in the API image and receives credentials through the container environment. `make demo` creates new scenario IDs on every run, executes healthy fan-out, outage recovery, response-loss retries with dedupe enabled and disabled, and dead-delivery replay. It checks API status and attempt history plus receiver-persisted request/effect counts. It never deletes prior events or scenarios, and it exits nonzero if an expectation fails. A failed run also saves its partial sanitized report.
 
+To create a scenario for the dashboard form, run this from the project directory and paste the full `scenario_id` from the command output into **Existing scenario ID**.
+
+```sh
+docker compose exec -T api /app/democtl scenario create --id example --receiver both --mode normal --dedupe on
+```
+
 ```sh
 make demo
 bash scripts/demo-recording.sh

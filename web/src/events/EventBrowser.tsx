@@ -144,16 +144,24 @@ function EventListView({
     }
   }
 
+  function cancelOlderRequest(): void {
+    const controller = manualRequest.current;
+    if (controller === null) return;
+    manualRequest.current = null;
+    controller.abort();
+    requestLocked.current = false;
+    setLoadingOlder(false);
+  }
+
+  function openEvent(eventId: string): void {
+    cancelOlderRequest();
+    onSelect(eventId);
+  }
+
   function showLatestPage(): void {
     const page = latestPage.current;
     if (page === null) return;
-    const controller = manualRequest.current;
-    if (controller !== null) {
-      manualRequest.current = null;
-      controller.abort();
-      requestLocked.current = false;
-      setLoadingOlder(false);
-    }
+    cancelOlderRequest();
     hasFirstPage.current = true;
     updateEvents(page.items);
     setNextCursor(page.next_cursor);
@@ -167,7 +175,7 @@ function EventListView({
 
   return (
     <div className="event-list-view">
-      <CreateEvent destinations={destinations} onOpenEvent={onSelect} />
+      <CreateEvent destinations={destinations} onOpenEvent={openEvent} />
       <p aria-live="polite" className="event-live-status" role="status">
         {loading ? "Loading events…" : liveStatus}
       </p>
@@ -196,7 +204,7 @@ function EventListView({
               <button
                 aria-label={`View ${event.type}, event ${shortId(event.id)}`}
                 className="event-select"
-                onClick={() => onSelect(event.id)}
+                onClick={() => openEvent(event.id)}
                 type="button"
               >
                 <span className="event-type">{event.type}</span>
@@ -519,17 +527,25 @@ function buildTimeline(attempts: AttemptDto[], replays: ReplayDto[]): TimelineEn
       value: replay,
     })),
   ].sort((left, right) => {
-    const delta = Date.parse(left.at) - Date.parse(right.at);
+    const delta = Date.parse(left.at) - Date.parse(right.at) ||
+      fractionalSecond(left.at) - fractionalSecond(right.at);
     if (delta !== 0) return delta;
-    if (left.kind !== right.kind) return left.kind === "attempt" ? -1 : 1;
+    // At equal timestamps, finish ordering the old cycle before opening the new one.
+    const leftCycle = left.kind === "attempt" ? left.value.cycle_no : left.value.to_cycle;
+    const rightCycle = right.kind === "attempt" ? right.value.cycle_no : right.value.to_cycle;
+    if (leftCycle !== rightCycle) return leftCycle - rightCycle;
+    if (left.kind !== right.kind) return left.kind === "replay" ? -1 : 1;
     if (left.kind === "attempt" && right.kind === "attempt") {
       return left.value.attempt_no - right.value.attempt_no;
     }
-    if (left.kind === "replay" && right.kind === "replay") {
-      return left.value.to_cycle - right.value.to_cycle;
-    }
     return left.key.localeCompare(right.key);
   });
+}
+
+// Date.parse truncates the fractional part to milliseconds.
+function fractionalSecond(timestamp: string): number {
+  const digits = /\.(\d+)(?:Z|[+-]\d{2}:\d{2})$/.exec(timestamp)?.[1];
+  return digits === undefined ? 0 : Number(`0.${digits}`);
 }
 
 function deliveryStatusLabel(status: string): string {

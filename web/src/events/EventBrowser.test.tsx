@@ -258,6 +258,42 @@ describe("EventBrowser", () => {
     expect(payloadNode?.querySelector("script")).toBeNull();
   });
 
+  it.each([
+    ["2026-11-12T10:01:00.123900Z", "within the same millisecond"],
+    ["2026-11-12T10:01:00.1231Z", "with an exact timestamp tie"],
+  ])("places a replay before its first attempt %s (%s)", async (attemptStart) => {
+    const detail = detailFixture();
+    const delivery = detail.deliveries[0];
+    delivery.cycle_no = 2;
+    delivery.cycle_attempt_count = 1;
+    delivery.attempts[0].started_at = "2026-11-12T10:01:00.123100Z";
+    delivery.attempts[1].cycle_no = 2;
+    delivery.attempts[1].cycle_attempt_no = 1;
+    delivery.attempts[1].started_at = attemptStart;
+    delivery.replays[0].created_at = "2026-11-12T10:01:00.123100Z";
+    const page = listPage([listItem(id9, "succeeded", true)], null);
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const body = String(input).startsWith("/v1/events/") ? detail : page;
+      return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+    }));
+
+    render(<EventBrowser />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /View order.confirmed/ }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    const timeline = screen.getByRole("list", { name: "fulfillment attempt and replay timeline" });
+    expect([...timeline.querySelectorAll("strong")].map((label) => label.textContent)).toEqual([
+      "Attempt 1 · cycle 1, try 1",
+      "Replay opened cycle 2",
+      "Attempt 2 · cycle 2, try 1",
+    ]);
+  });
+
   it("refreshes event details after replay returns 409", async () => {
     const page = listPage([listItem(id9)], null);
     const staleDetail = detailFixture();

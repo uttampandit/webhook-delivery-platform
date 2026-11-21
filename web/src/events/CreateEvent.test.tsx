@@ -35,6 +35,16 @@ describe("CreateEvent", () => {
     vi.useRealTimers();
   });
 
+  it("describes how to create a scenario and enter its returned ID", () => {
+    render(<CreateEvent destinations={destinations} onOpenEvent={vi.fn()} />);
+
+    const input = screen.getByRole("textbox", {
+      name: "Existing scenario ID",
+      description: /docker compose exec -T api \/app\/democtl scenario create.*Paste the full scenario_id returned by the command/,
+    });
+    expect(input).toBeTruthy();
+  });
+
   it("retries exact request bytes and key after response loss, then gives an edit a new key", async () => {
     const user = userEvent.setup();
     const onOpenEvent = vi.fn();
