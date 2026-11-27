@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventDeliveryDetailDto } from "../api/dto";
 import { session } from "../auth/memorySession";
-import { ReplayAction } from "./ReplayAction";
+import { type PendingReplays, ReplayAction } from "./ReplayAction";
 
 function deadDelivery(): EventDeliveryDetailDto {
   return {
@@ -34,7 +34,11 @@ function replayResponse() {
 }
 
 describe("ReplayAction", () => {
-  beforeEach(() => session.login("replay-test-token"));
+  let pendingReplays: PendingReplays;
+  beforeEach(() => {
+    session.login("replay-test-token");
+    pendingReplays = new Map();
+  });
 
   afterEach(() => {
     cleanup();
@@ -49,10 +53,10 @@ describe("ReplayAction", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
     const active = { ...deadDelivery(), status: "succeeded" };
-    const { rerender } = render(<ReplayAction delivery={active} onConflict={vi.fn()} />);
+    const { rerender } = render(<ReplayAction pendingReplays={pendingReplays} delivery={active} onConflict={vi.fn()} />);
     expect(screen.queryByRole("button", { name: "Replay delivery" })).toBeNull();
 
-    rerender(<ReplayAction delivery={deadDelivery()} onConflict={vi.fn()} />);
+    rerender(<ReplayAction pendingReplays={pendingReplays} delivery={deadDelivery()} onConflict={vi.fn()} />);
     const button = screen.getByRole("button", { name: "Replay delivery" });
     fireEvent.click(button);
     fireEvent.click(button);
@@ -72,7 +76,7 @@ describe("ReplayAction", () => {
       .mockResolvedValueOnce(new Response("{}", { status: 409 }));
     vi.stubGlobal("fetch", fetchMock);
     const onConflict = vi.fn();
-    const { rerender } = render(<ReplayAction delivery={deadDelivery()} onConflict={onConflict} />);
+    const { rerender } = render(<ReplayAction pendingReplays={pendingReplays} delivery={deadDelivery()} onConflict={onConflict} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Replay delivery" }));
     expect(await screen.findByText(/response was not confirmed/)).toBeTruthy();
@@ -87,16 +91,39 @@ describe("ReplayAction", () => {
       new Headers(retryRequest.headers).get("Idempotency-Key"),
     );
 
-    rerender(<ReplayAction delivery={{ ...deadDelivery(), cycle_no: 2 }} onConflict={onConflict} />);
+    rerender(<ReplayAction pendingReplays={pendingReplays} delivery={{ ...deadDelivery(), cycle_no: 2 }} onConflict={onConflict} />);
     expect(screen.getByRole("button", { name: "Replay delivery" })).toBeTruthy();
     expect(onConflict).not.toHaveBeenCalled();
+  });
+
+  it.each(["lost", "pending"])("keeps the same replay key after reopening a %s request", async (outcome) => {
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => outcome === "lost"
+        ? Promise.reject(new TypeError("response lost"))
+        : new Promise<Response>(() => {}))
+      .mockResolvedValueOnce(replayResponse());
+    vi.stubGlobal("fetch", fetchMock);
+    const action = <ReplayAction pendingReplays={pendingReplays} delivery={deadDelivery()} onConflict={vi.fn()} />;
+    const { unmount } = render(action);
+    fireEvent.click(screen.getByRole("button", { name: "Replay delivery" }));
+    if (outcome === "lost") await screen.findByRole("button", { name: "Retry same replay" });
+    unmount();
+
+    render(action);
+    fireEvent.click(screen.getByRole("button", { name: "Retry same replay" }));
+    await screen.findByText("Replay scheduled for cycle 2.");
+    const [first, second] = fetchMock.mock.calls.map((call) => new Headers((call[1] as RequestInit).headers));
+    expect(first?.get("Idempotency-Key")).toBeTruthy();
+    expect(second?.get("Idempotency-Key")).toBe(first?.get("Idempotency-Key"));
+    expect(second?.get("Replay-Expected-Cycle")).toBe("1");
+    expect(pendingReplays.size).toBe(0);
   });
 
   it("reports a 409 as a conflict and requests current-state refresh", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 409 }));
     vi.stubGlobal("fetch", fetchMock);
     const onConflict = vi.fn();
-    render(<ReplayAction delivery={deadDelivery()} onConflict={onConflict} />);
+    render(<ReplayAction pendingReplays={pendingReplays} delivery={deadDelivery()} onConflict={onConflict} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Replay delivery" }));
 
@@ -116,11 +143,11 @@ describe("ReplayAction", () => {
       .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveSecond = resolve; }));
     vi.stubGlobal("fetch", fetchMock);
     const onConflict = vi.fn();
-    const { rerender } = render(<ReplayAction delivery={deadDelivery()} onConflict={onConflict} />);
+    const { rerender } = render(<ReplayAction pendingReplays={pendingReplays} delivery={deadDelivery()} onConflict={onConflict} />);
     fireEvent.click(screen.getByRole("button", { name: "Replay delivery" }));
     const firstRequest = fetchMock.mock.calls[0]?.[1] as RequestInit;
 
-    rerender(<ReplayAction delivery={{ ...deadDelivery(), cycle_no: 2 }} onConflict={onConflict} />);
+    rerender(<ReplayAction pendingReplays={pendingReplays} delivery={{ ...deadDelivery(), cycle_no: 2 }} onConflict={onConflict} />);
     fireEvent.click(screen.getByRole("button", { name: "Replay delivery" }));
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(firstRequest.signal?.aborted).toBe(true);

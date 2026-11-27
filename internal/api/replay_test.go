@@ -22,14 +22,16 @@ type replayTestRepository struct {
 	calls                  int
 	tenant, id, key, actor string
 	deadline               bool
+	expectedCycle          int
 }
 
-func (r *replayTestRepository) Replay(ctx context.Context, tenant, id, key, actor string) (store.ReplayResult, error) {
+func (r *replayTestRepository) Replay(ctx context.Context, tenant, id, key, actor string, expectedCycle int) (store.ReplayResult, error) {
 	r.calls++
 	r.tenant = tenant
 	r.id = id
 	r.key = key
 	r.actor = actor
+	r.expectedCycle = expectedCycle
 	_, r.deadline = ctx.Deadline()
 	return r.result, r.err
 }
@@ -142,5 +144,34 @@ func TestReplayHTTPResponsesAndPrincipal(t *testing.T) {
 		if strings.Contains(w.Body.String(), "secret") {
 			t.Fatal("leaked error")
 		}
+	}
+}
+
+func TestReplayExpectedCycleHeader(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		values        []string
+		status, cycle int
+	}{
+		{"legacy request", nil, 202, 0},
+		{"current cycle", []string{"17"}, 202, 17},
+		{"empty", []string{""}, 400, 0},
+		{"zero", []string{"0"}, 400, 0},
+		{"negative", []string{"-1"}, 400, 0},
+		{"overflow", []string{"2147483648"}, 400, 0},
+		{"repeated", []string{"17", "17"}, 400, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &replayTestRepository{}
+			r := replayRequest("{}", "k")
+			for _, value := range tc.values {
+				r.Header.Add("Replay-Expected-Cycle", value)
+			}
+			w := httptest.NewRecorder()
+			NewHandler(testSettings(t), repo).ServeHTTP(w, r)
+			if w.Code != tc.status || repo.expectedCycle != tc.cycle || (repo.calls == 1) != (tc.status == 202) {
+				t.Fatalf("status=%d cycle=%d store calls=%d", w.Code, repo.expectedCycle, repo.calls)
+			}
+		})
 	}
 }

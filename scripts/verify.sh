@@ -99,8 +99,20 @@ npm ci --no-audit --no-fund
 cd "$root_dir"
 make web-check
 
-# A unique project name gives this run a newly created named volume and database.
-make up
+# Keep PostgreSQL's temporary Unix-socket server around long enough to catch a
+# readiness check that starts the TCP-only initializer before final startup.
+printf '%s\n' 'SELECT pg_sleep(8);' > "$scratch_dir/slow-init.sql"
+cat > "$scratch_dir/slow-init.yaml" <<'YAML'
+services:
+  postgres:
+    volumes:
+      - type: bind
+        source: ${VERIFY_SLOW_INIT_SQL:?}
+        target: /docker-entrypoint-initdb.d/01-verify-slow-init.sql
+        read_only: true
+YAML
+COMPOSE_FILE="$root_dir/compose.yaml:$scratch_dir/slow-init.yaml" \
+  VERIFY_SLOW_INIT_SQL="$scratch_dir/slow-init.sql" make up
 export GOFLAGS=-count=1
 make test-integration
 make test-crash

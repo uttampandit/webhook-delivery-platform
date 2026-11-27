@@ -129,6 +129,11 @@ func TestListEventsRejectsInvalidLimitAndCursor(t *testing.T) {
 		"?limit=101",
 		"?limit=abc",
 		"?limit=-1",
+		"?limit=%ZZ",
+		"?limit=1&limit=bogus",
+		"?limit=1&limit=1",
+		"?cursor=%ZZ",
+		"?cursor=a&cursor=b",
 		"?cursor=",
 		"?cursor=!!!invalid!!!",
 		"?cursor=" + strings.Repeat("x", 513), // over MaxCursorBytes

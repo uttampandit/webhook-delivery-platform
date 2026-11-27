@@ -4,10 +4,60 @@ package store
 
 import (
 	"context"
-	"github.com/uttampandit/webhook-delivery-platform/internal/delivery"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/uttampandit/webhook-delivery-platform/internal/delivery"
 )
+
+func TestRecoverySelectionBoundsFutureLeasesByIndex(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	pool, _, ids := claimFixture(t, ctx, 1)
+	claimExec(t, ctx, pool, `
+		WITH original AS (
+			SELECT e.* FROM events e JOIN deliveries d ON d.event_id=e.id WHERE d.id=$1
+		), copies AS (
+			INSERT INTO events (id,tenant_id,idempotency_key,request_body,request_hash,event_type,wire_body)
+			SELECT gen_random_uuid(),tenant_id,'future-lease-' || n,request_body,request_hash,event_type,wire_body
+			FROM original CROSS JOIN generate_series(1,5000) AS series(n)
+			RETURNING id,tenant_id
+		)
+		INSERT INTO deliveries (id,tenant_id,event_id,destination_id,url_snapshot,key_ref_snapshot,next_attempt_at,status,lease_until,claim_token)
+		SELECT gen_random_uuid(),c.tenant_id,c.id,d.destination_id,d.url_snapshot,d.key_ref_snapshot,
+		       statement_timestamp(),'in_flight',statement_timestamp()+interval '1 hour',gen_random_uuid()
+		FROM copies c CROSS JOIN deliveries d WHERE d.id=$1`, ids[0])
+	claimExec(t, ctx, pool, `ANALYZE deliveries`)
+
+	rows, err := pool.Query(ctx, "EXPLAIN (ANALYZE, COSTS OFF) "+selectExpiredDeliveries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var plan strings.Builder
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			t.Fatal(err)
+		}
+		plan.WriteString(line + "\n")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan.String(), "Index Cond: (lease_until <=") {
+		t.Fatalf("expected a lease range in the recovery plan, got:\n%s", plan.String())
+	}
+
+	recovery, err := NewRecoveryRepository(pool, 3*time.Second, delivery.Policy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered, err := recovery.RecoverExpired(ctx); err != nil || recovered != 0 {
+		t.Fatalf("future leases should be untouched: recovered=%d err=%v", recovered, err)
+	}
+}
 
 func TestRecoveryPostgreSQL(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)

@@ -295,6 +295,6 @@ func TestRequestIDsAreUUIDv4(t *testing.T) {
 	}
 }
 
-func (repository *testRepository) Replay(context.Context, string, string, string, string) (store.ReplayResult, error) {
+func (repository *testRepository) Replay(context.Context, string, string, string, string, int) (store.ReplayResult, error) {
 	return store.ReplayResult{}, store.ErrStoreUnavailable
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,16 @@ func (server *Server) replayDelivery(w http.ResponseWriter, r *http.Request, id 
 	if len(keys) != 1 || store.ValidateIdempotencyKey(keys[0]) != nil {
 		writeError(w, r, codeInvalidRequest)
 		return
+	}
+	// Legacy callers may omit the precondition. The dashboard always supplies it.
+	expectedCycle := 0
+	if values := r.Header.Values("Replay-Expected-Cycle"); len(values) > 0 {
+		value, err := strconv.ParseUint(values[0], 10, 31)
+		if len(values) != 1 || err != nil || value == 0 {
+			writeError(w, r, codeInvalidRequest)
+			return
+		}
+		expectedCycle = int(value)
 	}
 	body := http.MaxBytesReader(w, r.Body, store.MaxEventRequestBytes)
 	defer body.Close()
@@ -60,7 +71,7 @@ func (server *Server) replayDelivery(w http.ResponseWriter, r *http.Request, id 
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
-	result, err := server.repository.Replay(ctx, principal.TenantID, id, keys[0], principal.Actor)
+	result, err := server.repository.Replay(ctx, principal.TenantID, id, keys[0], principal.Actor, expectedCycle)
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrNotFound):

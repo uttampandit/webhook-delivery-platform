@@ -303,6 +303,33 @@ func TestOutageControlsAndRollbackPostgreSQL(t *testing.T) {
 	}
 	inspect(t, ctx, repo, "armed", 0, 0, 1)
 }
+func TestReceiverRejectsNullInOrderIDPostgreSQL(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, repo, handler := fixture(t, ctx)
+	web := httptest.NewServer(handler.Webhook())
+	defer web.Close()
+	controls := httptest.NewServer(handler.Control())
+	defer controls.Close()
+	create(t, ctx, controls.URL, "order-validation", "normal", true, 201)
+	s := sender(t, signing.Auth{Keys: keys{}})
+	request := claim(web.URL, "order-validation")
+	validBody := request.WireBody
+	request.WireBody = []byte(strings.Replace(string(validBody), "order-1", `order\u00001`, 1))
+	result := s.Send(ctx, request)
+	if result.Outcome != delivery.HTTPFailure || result.HTTPStatus == nil || *result.HTTPStatus != http.StatusBadRequest {
+		t.Fatalf("signed order ID with NUL must get 400, got %+v", result)
+	}
+	inspect(t, ctx, repo, "order-validation", 0, 0, 0)
+
+	request.WireBody = validBody
+	result = s.Send(ctx, request)
+	if result.Outcome != delivery.Acknowledged {
+		t.Fatalf("valid order ID with the same operation must succeed, got %+v", result)
+	}
+	inspect(t, ctx, repo, "order-validation", 1, 1, 0)
+}
+
 func TestConcurrentDropConsumedOncePostgreSQL(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

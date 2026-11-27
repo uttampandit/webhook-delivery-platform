@@ -52,7 +52,7 @@ func TestEventDetailUsesOneSnapshot(t *testing.T) {
 						t.Fatal(err)
 					}
 				} else {
-					if _, err := NewReplayRepository(pool).Replay(ctx, config.TenantID, claim.DeliveryID, "snapshot-replay", "local-operator"); err != nil {
+					if _, err := NewReplayRepository(pool).Replay(ctx, config.TenantID, claim.DeliveryID, "snapshot-replay", "local-operator", 0); err != nil {
 						t.Fatal(err)
 					}
 				}

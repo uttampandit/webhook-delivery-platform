@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ApiError, apiClient } from "../api/apiClient";
 import type {
   AttemptDto,
@@ -11,31 +11,49 @@ import type {
 } from "../api/dto";
 import { useVisiblePolling } from "../api/useVisiblePolling";
 import { CreateEvent } from "./CreateEvent";
-import { ReplayAction } from "./ReplayAction";
+import { type PendingReplays, ReplayAction } from "./ReplayAction";
 
 const PAGE_SIZE = 20;
 
 export function EventBrowser({ destinations = [] }: { destinations?: DestinationDto[] }) {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
+  const listHeading = useRef<HTMLHeadingElement>(null);
+  const [pendingReplays] = useState<PendingReplays>(() => new Map());
+  const returnFocus = useRef<HTMLButtonElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (selectedEventId !== null || returnFocus.current === null) return;
+    const trigger = returnFocus.current;
+    returnFocus.current = null;
+    if (trigger.isConnected && !trigger.disabled) trigger.focus();
+    else listHeading.current?.focus();
+  }, [selectedEventId]);
+
+  function selectEvent(eventId: string, trigger: HTMLButtonElement): void {
+    returnFocus.current = trigger;
+    setSelectedEventId(eventId);
+  }
+
   return (
     <section aria-labelledby="events-heading" className="events-panel">
       <div className="events-heading-row">
         <div>
           <p className="eyebrow">Delivery history</p>
-          <h2 id="events-heading">Events</h2>
+          <h2 id="events-heading" ref={listHeading} tabIndex={-1}>Events</h2>
         </div>
       </div>
       <div hidden={selectedEventId !== null}>
         <EventListView
           destinations={destinations}
-          onSelect={setSelectedEventId}
+          onSelect={selectEvent}
           active={selectedEventId === null}
         />
       </div>
       {selectedEventId !== null ? (
         <EventDetailView
           eventId={selectedEventId}
+          pendingReplays={pendingReplays}
           onBack={() => setSelectedEventId(null)}
         />
       ) : null}
@@ -48,7 +66,7 @@ function EventListView({
   active,
   destinations,
 }: {
-  onSelect: (eventId: string) => void;
+  onSelect: (eventId: string, trigger: HTMLButtonElement) => void;
   active: boolean;
   destinations: DestinationDto[];
 }) {
@@ -58,6 +76,7 @@ function EventListView({
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [newEventsAvailable, setNewEventsAvailable] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [olderRefreshFailed, setOlderRefreshFailed] = useState(false);
   const eventsRef = useRef(events);
   const hasFirstPage = useRef(false);
   const latestPage = useRef<EventListDto | null>(null);
@@ -78,7 +97,12 @@ function EventListView({
     setEvents(value);
   }
 
-  function acceptLatestPage(page: EventListDto, refreshedItems: EventListItemDto[]): void {
+  function mergeUpdatedEvents(items: EventListItemDto[]): void {
+    const updated = new Map(items.map((event) => [event.id, event]));
+    updateEvents(eventsRef.current.map((event) => updated.get(event.id) ?? event));
+  }
+
+  function acceptLatestPage(page: EventListDto): void {
     latestPage.current = page;
     setLoading(false);
     setErrorMessage("");
@@ -93,10 +117,7 @@ function EventListView({
     if (page.items.some((event) => !visibleIds.has(event.id))) {
       setNewEventsAvailable(true);
     }
-    const freshItems = new Map(refreshedItems.map((event) => [event.id, event]));
-    updateEvents(
-      eventsRef.current.map((event) => freshItems.get(event.id) ?? event),
-    );
+    mergeUpdatedEvents(page.items);
   }
 
   const pollingStatus = useVisiblePolling(
@@ -105,8 +126,12 @@ function EventListView({
       requestLocked.current = true;
       try {
         const page = await apiClient.getEvents(PAGE_SIZE, undefined, signal);
-        const refreshed = await refreshDisplayedEvents(page.items, eventsRef.current, signal);
-        if (!signal.aborted) acceptLatestPage(page, refreshed);
+        if (signal.aborted) return;
+        acceptLatestPage(page);
+        const older = await refreshDisplayedEvents(page.items, eventsRef.current, signal);
+        if (signal.aborted) return;
+        if (older.items.length > 0) mergeUpdatedEvents(older.items);
+        setOlderRefreshFailed(eventsRef.current.some((event) => older.failedIds.has(event.id)));
       } catch (error) {
         if (signal.aborted) return;
         setLoading(false);
@@ -153,9 +178,9 @@ function EventListView({
     setLoadingOlder(false);
   }
 
-  function openEvent(eventId: string): void {
+  function openEvent(eventId: string, trigger: HTMLButtonElement): void {
     cancelOlderRequest();
-    onSelect(eventId);
+    onSelect(eventId, trigger);
   }
 
   function showLatestPage(): void {
@@ -166,12 +191,15 @@ function EventListView({
     updateEvents(page.items);
     setNextCursor(page.next_cursor);
     setNewEventsAvailable(false);
+    setOlderRefreshFailed(false);
     setErrorMessage("");
   }
 
   const liveStatus = pollingStatus === "disconnected"
     ? "Live updates are interrupted. The dashboard will retry while this page is visible."
-    : "";
+    : olderRefreshFailed
+      ? "Some older delivery statuses could not be refreshed. Showing their last known status."
+      : "";
 
   return (
     <div className="event-list-view">
@@ -202,9 +230,8 @@ function EventListView({
           {events.map((event) => (
             <li className="event-card" key={event.id}>
               <button
-                aria-label={`View ${event.type}, event ${shortId(event.id)}`}
                 className="event-select"
-                onClick={() => openEvent(event.id)}
+                onClick={(click) => openEvent(event.id, click.currentTarget)}
                 type="button"
               >
                 <span className="event-type">{event.type}</span>
@@ -246,19 +273,18 @@ async function refreshDisplayedEvents(
   newest: EventListItemDto[],
   displayed: EventListItemDto[],
   signal: AbortSignal,
-): Promise<EventListItemDto[]> {
-  const refreshed = [...newest];
+): Promise<{ items: EventListItemDto[]; failedIds: Set<string> }> {
+  const items: EventListItemDto[] = [];
+  const failedIds = new Set<string>();
   const newestIds = new Set(newest.map((event) => event.id));
   const missing = displayed.filter((event) => !newestIds.has(event.id));
-  let failed = false;
-  let failure: unknown;
   await Promise.all(Array.from({ length: Math.min(4, missing.length) }, async () => {
-    while (!signal.aborted && !failed) {
+    while (!signal.aborted) {
       const event = missing.shift();
       if (!event) return;
       try {
         const detail = await apiClient.getEvent(event.id, signal);
-        refreshed.push({
+        items.push({
           ...event,
           deliveries: detail.deliveries.map((delivery) => ({
             id: delivery.id,
@@ -267,29 +293,34 @@ async function refreshDisplayedEvents(
             has_unconfirmed_attempts: delivery.has_unconfirmed_attempts,
           })),
         });
-      } catch (error) {
-        failed = true;
-        failure = error;
+      } catch {
+        failedIds.add(event.id);
       }
     }
   }));
   // All started reads have settled before the poll releases its request lock.
-  if (failed) throw failure;
-  return refreshed;
+  return { items, failedIds };
 }
 
 function EventDetailView({
   eventId,
   onBack,
+  pendingReplays,
 }: {
   eventId: string;
   onBack: () => void;
+  pendingReplays: PendingReplays;
 }) {
   const [event, setEvent] = useState<EventDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [refreshAfterConflict, setRefreshAfterConflict] = useState(false);
   const conflictRefresh = useRef<AbortController | null>(null);
+  const detailRegion = useRef<HTMLElement>(null);
+
+  useLayoutEffect(() => {
+    detailRegion.current?.focus();
+  }, []);
 
   useEffect(
     () => () => {
@@ -346,7 +377,7 @@ function EventDetailView({
   );
 
   return (
-    <div className="event-detail-view">
+    <section aria-label="Event details" className="event-detail-view" ref={detailRegion} tabIndex={-1}>
       <button className="back-button" onClick={onBack} type="button">
         ← Back to events
       </button>
@@ -367,17 +398,19 @@ function EventDetailView({
       {!loading && event === null && !errorMessage ? (
         <p className="empty-state">This event is unavailable.</p>
       ) : null}
-      {event ? <EventDetail event={event} onReplayConflict={refreshCurrentStatus} /> : null}
-    </div>
+      {event ? <EventDetail event={event} onReplayConflict={refreshCurrentStatus} pendingReplays={pendingReplays} /> : null}
+    </section>
   );
 }
 
 function EventDetail({
   event,
   onReplayConflict,
+  pendingReplays,
 }: {
   event: EventDetailDto;
   onReplayConflict: () => void;
+  pendingReplays: PendingReplays;
 }) {
   const formattedPayload = event.payloadText ?? JSON.stringify(event.payload, null, 2) ?? "null";
   return (
@@ -410,6 +443,7 @@ function EventDetail({
                 delivery={delivery}
                 key={delivery.id}
                 onReplayConflict={onReplayConflict}
+                pendingReplays={pendingReplays}
               />
             ))}
           </div>
@@ -422,9 +456,11 @@ function EventDetail({
 function DeliveryHistory({
   delivery,
   onReplayConflict,
+  pendingReplays,
 }: {
   delivery: EventDeliveryDetailDto;
   onReplayConflict: () => void;
+  pendingReplays: PendingReplays;
 }) {
   const timeline = buildTimeline(delivery.attempts, delivery.replays);
   return (
@@ -447,7 +483,7 @@ function DeliveryHistory({
           <p className="terminal-reason">Terminal reason: <code>{delivery.terminal_reason}</code></p>
         ) : null}
       </header>
-      <ReplayAction delivery={delivery} onConflict={onReplayConflict} />
+      <ReplayAction delivery={delivery} onConflict={onReplayConflict} pendingReplays={pendingReplays} />
       <dl className="delivery-facts">
         <div><dt>Operation ID</dt><dd><code>{delivery.operation_id}</code></dd></div>
         <div><dt>Cycle</dt><dd>{delivery.cycle_no} · {delivery.cycle_attempt_count} attempts this cycle</dd></div>

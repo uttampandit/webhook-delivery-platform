@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
@@ -65,7 +66,7 @@ func ValidateDemoEnvelope(raw []byte) (DemoEnvelope, error) {
 	}
 	var scenario, order string
 	var quantity int
-	if json.Unmarshal(data["scenario_id"], &scenario) != nil || !ValidScenarioID(scenario) || json.Unmarshal(data["order_id"], &order) != nil || utf8.RuneCountInString(order) < 1 || utf8.RuneCountInString(order) > 128 || json.Unmarshal(data["quantity"], &quantity) != nil || quantity < 1 || quantity > 100000 {
+	if json.Unmarshal(data["scenario_id"], &scenario) != nil || !ValidScenarioID(scenario) || json.Unmarshal(data["order_id"], &order) != nil || strings.IndexByte(order, 0) >= 0 || utf8.RuneCountInString(order) < 1 || utf8.RuneCountInString(order) > 128 || json.Unmarshal(data["quantity"], &quantity) != nil || quantity < 1 || quantity > 100000 {
 		return invalid()
 	}
 	return DemoEnvelope{true, scenario, order, quantity, sha256.Sum256(raw)}, nil

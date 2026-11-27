@@ -62,6 +62,7 @@ export class ApiClient {
   async replayDelivery(
     deliveryId: string,
     idempotencyKey: string,
+    expectedCycle: number,
     signal?: AbortSignal,
   ): Promise<ReplayResponseDto> {
     return this.requestJson(
@@ -73,6 +74,7 @@ export class ApiClient {
         headers: {
           "Content-Type": "application/json",
           "Idempotency-Key": idempotencyKey,
+          "Replay-Expected-Cycle": String(expectedCycle),
         },
         body: "{}",
       },

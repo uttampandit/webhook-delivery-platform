@@ -47,7 +47,7 @@ func TestManyClaimersOneDeliveryAndReplayFencePostgreSQL(t *testing.T) {
 	if _, e = finalizer.Finalize(ctx, winner, sendStatus(400)); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = NewReplayRepository(pool).Replay(ctx, config.TenantID, winner.DeliveryID, "next-cycle", "local-operator"); e != nil {
+	if _, e = NewReplayRepository(pool).Replay(ctx, config.TenantID, winner.DeliveryID, "next-cycle", "local-operator", 0); e != nil {
 		t.Fatal(e)
 	}
 	current := mustClaim(t, ctx, claims, 1)[0]

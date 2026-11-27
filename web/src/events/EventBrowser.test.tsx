@@ -183,33 +183,33 @@ describe("EventBrowser", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(screen.getByRole("button", { name: `View order.confirmed, event ${id9.slice(0, 8)}` })).toBeTruthy();
+    expect(screen.getByRole("button", { name: new RegExp(`…${id9.slice(0, 8)}$`) })).toBeTruthy();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Load older events" }));
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(screen.getByRole("button", { name: `View order.confirmed, event ${id7.slice(0, 8)}` })).toBeTruthy();
+    expect(screen.getByRole("button", { name: new RegExp(`…${id7.slice(0, 8)}$`) })).toBeTruthy();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
     expect(screen.getByText("New events are available. The current page order is unchanged.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: `View order.confirmed, event ${idA.slice(0, 8)}` })).toBeNull();
-    const beforeRefresh = screen.getAllByRole("button", { name: /View order.confirmed/ });
-    expect(beforeRefresh.map((button) => button.getAttribute("aria-label"))).toEqual([
-      `View order.confirmed, event ${id9.slice(0, 8)}`,
-      `View order.confirmed, event ${id8.slice(0, 8)}`,
-      `View order.confirmed, event ${id7.slice(0, 8)}`,
+    expect(screen.queryByRole("button", { name: new RegExp(`…${idA.slice(0, 8)}$`) })).toBeNull();
+    const beforeRefresh = screen.getAllByRole("button", { name: /order\.confirmed/ });
+    expect(beforeRefresh.map((button) => button.querySelector("code")?.textContent)).toEqual([
+      `…${id9.slice(0, 8)}`,
+      `…${id8.slice(0, 8)}`,
+      `…${id7.slice(0, 8)}`,
     ]);
     expect(screen.getByText("Earlier effect uncertain")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Show new events" }));
-    const afterRefresh = screen.getAllByRole("button", { name: /View order.confirmed/ });
-    expect(afterRefresh.map((button) => button.getAttribute("aria-label"))).toEqual([
-      `View order.confirmed, event ${idA.slice(0, 8)}`,
-      `View order.confirmed, event ${id9.slice(0, 8)}`,
-      `View order.confirmed, event ${id8.slice(0, 8)}`,
+    const afterRefresh = screen.getAllByRole("button", { name: /order\.confirmed/ });
+    expect(afterRefresh.map((button) => button.querySelector("code")?.textContent)).toEqual([
+      `…${idA.slice(0, 8)}`,
+      `…${id9.slice(0, 8)}`,
+      `…${id8.slice(0, 8)}`,
     ]);
     expect(fetchMock).toHaveBeenCalledWith(
       "/v1/events?limit=20&cursor=cursor-page-1",
@@ -235,7 +235,7 @@ describe("EventBrowser", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    fireEvent.click(screen.getByRole("button", { name: `View order.confirmed, event ${id9.slice(0, 8)}` }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(`…${id9.slice(0, 8)}$`) }));
     expect(screen.getByText("Loading event details…")).toBeTruthy();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
@@ -281,7 +281,7 @@ describe("EventBrowser", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    fireEvent.click(screen.getByRole("button", { name: /View order.confirmed/ }));
+    fireEvent.click(screen.getByRole("button", { name: /order\.confirmed/ }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -333,7 +333,7 @@ describe("EventBrowser", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    fireEvent.click(screen.getByRole("button", { name: `View order.confirmed, event ${id9.slice(0, 8)}` }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(`…${id9.slice(0, 8)}$`) }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -404,12 +404,71 @@ describe("EventBrowser", () => {
     expect(screen.queryAllByText("fulfillment: Pending")).toHaveLength(0);
     expect(screen.getAllByText("fulfillment: Acknowledged")).toHaveLength(2);
     expect(screen.getAllByText("Earlier effect uncertain")).toHaveLength(2);
-    expect(screen.getAllByRole("button", { name: /View order.confirmed/ }).map((button) => button.getAttribute("aria-label"))).toEqual([
-      `View order.confirmed, event ${id9.slice(0, 8)}`,
-      `View order.confirmed, event ${id7.slice(0, 8)}`,
+    expect(screen.getAllByRole("button", { name: /order\.confirmed/ }).map((button) => button.querySelector("code")?.textContent)).toEqual([
+      `…${id9.slice(0, 8)}`,
+      `…${id7.slice(0, 8)}`,
     ]);
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Load older events" })); });
     expect(fetchMock).toHaveBeenCalledWith("/v1/events?limit=20&cursor=older-next", expect.any(Object));
+  });
+
+  it("keeps fresh data available when one older event detail fails", async () => {
+    let hasNewEvent = false;
+    let failOlderDetail = true;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === `/v1/events/${id9}` && failOlderDetail) {
+        return new Response("{}", { status: 503 });
+      }
+      const body = path.startsWith("/v1/events/")
+        ? detailFromItem(listItem(path.split("/").at(-1) ?? "", "succeeded"))
+        : path.includes("cursor=")
+          ? listPage([listItem(id7)], null)
+          : hasNewEvent
+            ? listPage([listItem(idA, "succeeded")], "new-cursor")
+            : listPage([listItem(id9)], "older-cursor");
+      return new Response(JSON.stringify(body));
+    }));
+    render(<EventBrowser />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Load older events" })); });
+
+    hasNewEvent = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(screen.getByRole("button", { name: "Show new events" })).toBeTruthy();
+    expect(screen.getByText(/Some older delivery statuses could not be refreshed/)).toBeTruthy();
+    expect(screen.getByText("fulfillment: Pending")).toBeTruthy();
+    expect(screen.getByText("fulfillment: Acknowledged")).toBeTruthy();
+
+    failOlderDetail = false;
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(screen.queryByText(/Some older delivery statuses could not be refreshed/)).toBeNull();
+    expect(screen.getAllByText("fulfillment: Acknowledged")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Show new events" }));
+    expect(screen.getByRole("button", { name: new RegExp(`…${idA.slice(0, 8)}$`) })).toBeTruthy();
+  });
+
+  it("names an event button from its visible text and restores its keyboard focus", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const body = String(input).startsWith("/v1/events/")
+        ? detailFixture()
+        : listPage([listItem(id9)], null);
+      return new Response(JSON.stringify(body));
+    }));
+    render(<EventBrowser />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+    const visibleTime = new Date(sharedTime).toLocaleString();
+    const trigger = screen.getByRole("button", {
+      name: (name) => name.includes("order.confirmed") && name.includes(visibleTime) && name.endsWith("…90000000"),
+    });
+    trigger.focus();
+    fireEvent.click(trigger);
+    expect(document.activeElement).toBe(screen.getByRole("region", { name: "Event details" }));
+    const back = screen.getByRole("button", { name: /Back to events/ });
+    back.focus();
+    fireEvent.click(back);
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("bounds older-row refresh concurrency and cancels pending reads on unmount", async () => {

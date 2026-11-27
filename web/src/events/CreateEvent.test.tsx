@@ -75,8 +75,9 @@ describe("CreateEvent", () => {
     expect(new Headers(retryRequest.headers).get("Idempotency-Key")).toBe(originalKey);
     expect(screen.getByText("Delivery is not yet confirmed.")).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "View event details" }));
-    expect(onOpenEvent).toHaveBeenCalledWith("event-created");
+    const detailsButton = screen.getByRole("button", { name: "View event details" });
+    await user.click(detailsButton);
+    expect(onOpenEvent).toHaveBeenCalledWith("event-created", detailsButton);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -186,6 +187,8 @@ describe("CreateEvent", () => {
     { scenario: "bad/scenario", quantity: "1", order: "order", message: "Scenario ID must be 1–64 letters, digits, underscores, or hyphens." },
     { scenario: "bad scenario", quantity: "1", order: "order", message: "Scenario ID must be 1–64 letters, digits, underscores, or hyphens." },
     { scenario: "valid", quantity: "1", order: "x".repeat(129), message: "Order ID must be at most 128 characters." },
+    { scenario: "valid", quantity: "1", order: "🛒".repeat(129), message: "Order ID must be at most 128 characters." },
+    { scenario: "valid", quantity: "1", order: "order\u0000id", message: "Order ID cannot contain a null character." },
   ])("rejects receiver-invalid form values before submitting: $scenario / $quantity", ({ scenario, quantity, order, message }) => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -204,9 +207,13 @@ describe("CreateEvent", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<CreateEvent destinations={destinations} onOpenEvent={vi.fn()} />);
     const scenario = `A_-${"x".repeat(61)}`;
-    const order = "o".repeat(128);
+    const order = "🛒".repeat(128);
+    const user = userEvent.setup();
     fireEvent.change(screen.getByLabelText("Existing scenario ID"), { target: { value: scenario } });
-    fireEvent.change(screen.getByLabelText("Order ID"), { target: { value: order } });
+    const orderInput = screen.getByRole<HTMLInputElement>("textbox", { name: "Order ID" });
+    await user.click(orderInput);
+    await user.paste(order);
+    expect(orderInput.value).toBe(order);
     fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "100000" } });
     fireEvent.click(screen.getByLabelText("fulfillment"));
     await act(async () => { submitForm(); });

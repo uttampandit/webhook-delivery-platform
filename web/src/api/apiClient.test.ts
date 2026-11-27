@@ -170,7 +170,7 @@ describe("ApiClient", () => {
     const body = '{"type":"order.confirmed", "payload":{"quantity":2},"destination_ids":["destination-a"]}';
 
     await expect(client.createEvent(body, "create-key-1")).resolves.toEqual(createResult);
-    await expect(client.replayDelivery("delivery/a", "replay-key-1")).resolves.toEqual(replayResult);
+    await expect(client.replayDelivery("delivery/a", "replay-key-1", 1)).resolves.toEqual(replayResult);
 
     const createRequest = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
     const replayRequest = fetchMock.mock.calls[1]?.[1] as RequestInit | undefined;
@@ -182,6 +182,7 @@ describe("ApiClient", () => {
     expect(fetchMock.mock.calls[1]?.[0]).toBe("/v1/deliveries/delivery%2Fa/replay");
     expect(replayRequest?.body).toBe("{}");
     expect(new Headers(replayRequest?.headers).get("Idempotency-Key")).toBe("replay-key-1");
+    expect(new Headers(replayRequest?.headers).get("Replay-Expected-Cycle")).toBe("1");
   });
 
   it("clears the token, pending requests, and registered sensitive caches after a 401", async () => {

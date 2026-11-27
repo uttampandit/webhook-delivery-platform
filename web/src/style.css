@@ -24,7 +24,8 @@ input {
 }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+[tabindex="-1"]:focus-visible {
   outline: 3px solid #276c52;
   outline-offset: 3px;
 }
@@ -673,7 +674,7 @@ h3 {
 
 .footer-note {
   margin-top: 1.5rem;
-  color: #66756c;
+  color: #536359;
   font-size: 0.8rem;
 }
 

@@ -16,7 +16,7 @@ import (
 )
 
 type Repository interface {
-	Replay(context.Context, string, string, string, string) (store.ReplayResult, error)
+	Replay(context.Context, string, string, string, string, int) (store.ReplayResult, error)
 	Ping(context.Context) error
 	CheckReadiness(context.Context, config.Registry) error
 	ListDestinations(context.Context, string) ([]store.DestinationSummary, error)

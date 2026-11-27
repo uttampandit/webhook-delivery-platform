@@ -24,12 +24,14 @@ func NewReplayRepository(pool *pgxpool.Pool) *ReplayRepository { return &ReplayR
 
 // Replay schedules the same operation in a fresh cycle, after persisting its
 // audit row. READ COMMITTED rechecks observe winners committed during waits.
-func (r *ReplayRepository) Replay(ctx context.Context, tenantID, deliveryID, key, actor string) (ReplayResult, error) {
+// A zero expected cycle permits legacy requests. A recorded key is resolved
+// before this precondition so a retry still receives its original result.
+func (r *ReplayRepository) Replay(ctx context.Context, tenantID, deliveryID, key, actor string, expectedCycle int) (ReplayResult, error) {
 	empty := ReplayResult{}
 	if r == nil || r.pool == nil {
 		return empty, ErrStoreUnavailable
 	}
-	if !isCanonicalUUID(tenantID) || !isCanonicalUUID(deliveryID) || ValidateIdempotencyKey(key) != nil || actor != "local-operator" {
+	if !isCanonicalUUID(tenantID) || !isCanonicalUUID(deliveryID) || ValidateIdempotencyKey(key) != nil || actor != "local-operator" || expectedCycle < 0 {
 		return empty, ErrInvalidInput
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -69,7 +71,7 @@ func (r *ReplayRepository) Replay(ctx context.Context, tenantID, deliveryID, key
 	if result, err := existing(); !errors.Is(err, pgx.ErrNoRows) {
 		return result, err
 	}
-	if status != "dead" {
+	if status != "dead" || (expectedCycle != 0 && cycle != expectedCycle) {
 		return empty, ErrInvalidState
 	}
 	id, _, err := newEventUUID()

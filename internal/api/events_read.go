@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -98,8 +99,13 @@ func (server *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil || len(query["limit"]) > 1 || len(query["cursor"]) > 1 {
+		writeError(w, r, codeInvalidRequest)
+		return
+	}
+
 	// Parse limit.
-	query := r.URL.Query()
 	limit := store.DefaultPageLimit
 	if query.Has("limit") {
 		n, err := strconv.Atoi(query.Get("limit"))

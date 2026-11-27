@@ -10,6 +10,14 @@ import (
 	"github.com/uttampandit/webhook-delivery-platform/internal/delivery"
 )
 
+// A statement-stable cutoff allows an index range on the lease deadline.
+// The recovery transaction still checks the current database time after locking.
+const selectExpiredDeliveries = `SELECT id::text
+	FROM deliveries
+	WHERE status='in_flight' AND lease_until<=statement_timestamp()
+	ORDER BY lease_until, deliveries.id
+	LIMIT 100 FOR UPDATE SKIP LOCKED`
+
 var ErrRecoveryUnavailable = errors.New("recovery store unavailable")
 var ErrRecoveryCommitUnknown = errors.New("recovery commit outcome is unknown")
 
@@ -43,7 +51,7 @@ func (r *RecoveryRepository) RecoverExpiredDetailed(ctx context.Context) (int, i
 		return 0, 0, ErrRecoveryUnavailable
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, `SELECT id::text FROM deliveries WHERE status='in_flight' AND lease_until<=clock_timestamp() ORDER BY lease_until,id LIMIT 100 FOR UPDATE SKIP LOCKED`)
+	rows, err := tx.Query(ctx, selectExpiredDeliveries)
 	if err != nil {
 		return 0, 0, ErrRecoveryUnavailable
 	}

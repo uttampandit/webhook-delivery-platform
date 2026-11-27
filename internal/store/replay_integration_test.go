@@ -60,7 +60,7 @@ func TestReplayRaceMatrixPostgreSQL(t *testing.T) {
 					id = ids[1]
 				}
 				go func(id, key string) {
-					v, e := r.Replay(ctx, config.TenantID, id, key, "local-operator")
+					v, e := r.Replay(ctx, config.TenantID, id, key, "local-operator", 0)
 					done <- result{v, e, id}
 				}(id, key)
 			}
@@ -124,7 +124,7 @@ func TestReplayCyclesAndStatePostgreSQL(t *testing.T) {
 	}
 	// An UPDATE trigger observes the audit inside the transaction, proving order.
 	claimExec(t, ctx, pool, `CREATE FUNCTION test_require_replay_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD.status='dead' AND NEW.status='pending' AND NOT EXISTS(SELECT 1 FROM replays WHERE delivery_id=NEW.id AND from_cycle=OLD.cycle_no AND to_cycle=NEW.cycle_no) THEN RAISE EXCEPTION 'audit must precede update'; END IF; RETURN NEW; END $$; CREATE TRIGGER test_require_replay_audit BEFORE UPDATE ON deliveries FOR EACH ROW EXECUTE FUNCTION test_require_replay_audit()`)
-	first, e := r.Replay(ctx, config.TenantID, c.DeliveryID, "cycle-two", "local-operator")
+	first, e := r.Replay(ctx, config.TenantID, c.DeliveryID, "cycle-two", "local-operator", 0)
 	if e != nil || first.CycleNo != 2 || first.Deduplicated {
 		t.Fatal(first, e)
 	}
@@ -141,7 +141,7 @@ func TestReplayCyclesAndStatePostgreSQL(t *testing.T) {
 	}
 	checkDuplicate := func() {
 		t.Helper()
-		got, e := r.Replay(ctx, config.TenantID, c.DeliveryID, "cycle-two", "local-operator")
+		got, e := r.Replay(ctx, config.TenantID, c.DeliveryID, "cycle-two", "local-operator", 0)
 		if e != nil || !got.Deduplicated || got.CycleNo != 2 || got.ReplayID != first.ReplayID {
 			t.Fatal(got, e)
 		}
@@ -149,7 +149,7 @@ func TestReplayCyclesAndStatePostgreSQL(t *testing.T) {
 	rejectNew := func(key string) {
 		t.Helper()
 		before := finalSnapshot(t, ctx, pool, c.DeliveryID)
-		if _, e := r.Replay(ctx, config.TenantID, c.DeliveryID, key, "local-operator"); e != ErrInvalidState {
+		if _, e := r.Replay(ctx, config.TenantID, c.DeliveryID, key, "local-operator", 0); e != ErrInvalidState {
 			t.Fatal(e)
 		}
 		if before != finalSnapshot(t, ctx, pool, c.DeliveryID) {
@@ -168,7 +168,7 @@ func TestReplayCyclesAndStatePostgreSQL(t *testing.T) {
 		t.Fatal(e)
 	}
 	checkDuplicate()
-	third, e := r.Replay(ctx, config.TenantID, c.DeliveryID, "cycle-three", "local-operator")
+	third, e := r.Replay(ctx, config.TenantID, c.DeliveryID, "cycle-three", "local-operator", 0)
 	if e != nil || third.CycleNo != 3 {
 		t.Fatal(third, e)
 	}
@@ -204,7 +204,7 @@ func TestReplayIsolationAndRollbackPostgreSQL(t *testing.T) {
 			{config.TenantID, ids[0], "a b", "local-operator", ErrInvalidInput},
 			{config.TenantID, ids[0], "k", "", ErrInvalidInput},
 		} {
-			if _, e := r.Replay(ctx, input.tenant, input.id, input.key, input.actor); !errors.Is(e, input.want) {
+			if _, e := r.Replay(ctx, input.tenant, input.id, input.key, input.actor, 0); !errors.Is(e, input.want) {
 				t.Fatal(e, input.want)
 			}
 		}
@@ -224,7 +224,7 @@ func TestReplayIsolationAndRollbackPostgreSQL(t *testing.T) {
 			} else {
 				claimExec(t, ctx, pool, `ALTER TABLE deliveries ADD CONSTRAINT test_replay_failure CHECK(status<>'pending')`)
 			}
-			if got, e := r.Replay(ctx, config.TenantID, ids[0], "rollback-key", "local-operator"); e != want || got.ReplayID != "" {
+			if got, e := r.Replay(ctx, config.TenantID, ids[0], "rollback-key", "local-operator", 0); e != want || got.ReplayID != "" {
 				t.Fatal(got, e)
 			}
 			replayAuditCount(t, ctx, pool, 0)
@@ -236,7 +236,7 @@ func TestReplayIsolationAndRollbackPostgreSQL(t *testing.T) {
 			} else {
 				claimExec(t, ctx, pool, `ALTER TABLE deliveries DROP CONSTRAINT test_replay_failure`)
 			}
-			if _, e := r.Replay(ctx, config.TenantID, ids[0], "rollback-key", "local-operator"); e != nil {
+			if _, e := r.Replay(ctx, config.TenantID, ids[0], "rollback-key", "local-operator", 0); e != nil {
 				t.Fatal("key not reusable after rollback", e)
 			}
 		})

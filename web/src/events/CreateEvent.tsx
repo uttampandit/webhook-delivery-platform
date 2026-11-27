@@ -25,7 +25,7 @@ export function CreateEvent({
   onOpenEvent,
 }: {
   destinations: DestinationDto[];
-  onOpenEvent: (eventId: string) => void;
+  onOpenEvent: (eventId: string, trigger: HTMLButtonElement) => void;
 }) {
   const [scenarioId, setScenarioId] = useState("");
   const [orderId, setOrderId] = useState("");
@@ -74,6 +74,10 @@ export function CreateEvent({
     }
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(normalizedScenario)) {
       setValidationMessage("Scenario ID must be 1–64 letters, digits, underscores, or hyphens.");
+      return;
+    }
+    if (normalizedOrder.includes(String.fromCharCode(0))) {
+      setValidationMessage("Order ID cannot contain a null character.");
       return;
     }
     if (Array.from(normalizedOrder).length > 128) {
@@ -162,7 +166,7 @@ export function CreateEvent({
           <span>Event <code>{accepted.event_id}</code> · {accepted.delivery_ids.length} delivery record(s)</span>
           {accepted.deduplicated ? <span>This exact request was already accepted.</span> : null}
           <div className="action-result-buttons">
-            <button className="primary-button" onClick={() => onOpenEvent(accepted.event_id)} type="button">
+            <button className="primary-button" onClick={(event) => onOpenEvent(accepted.event_id, event.currentTarget)} type="button">
               View event details
             </button>
             <button className="secondary-button" onClick={createAnother} type="button">
@@ -188,7 +192,6 @@ export function CreateEvent({
             autoComplete="off"
             disabled={isSending || destinations.length === 0}
             id="order-id"
-            maxLength={128}
             onChange={(event) => edit(setOrderId, event.currentTarget.value)}
             required
             value={orderId}

@@ -90,8 +90,8 @@ async function paginationSetup() {
 }
 const visibleIds = () =>
   screen
-    .getAllByRole("button", { name: /View order.confirmed/ })
-    .map((e) => e.getAttribute("aria-label"));
+    .getAllByRole("button", { name: /order\.confirmed/ })
+    .map((e) => e.querySelector("code")?.textContent);
 it("control: resetting before starting pagination reaches all three 20-event windows", async () => {
   const pending = await paginationSetup();
   fireEvent.click(screen.getByRole("button", { name: "Show new events" }));
@@ -114,7 +114,7 @@ it("discards stale pagination results and retains all intervening events", async
   expect(visibleIds()).toHaveLength(20);
   expect(visibleIds()).toEqual(
     range(60, 41).map(
-      (n) => `View order.confirmed, event ${id(n).slice(0, 8)}`,
+      (n) => `…${id(n).slice(0, 8)}`,
     ),
   );
   await act(async () => {
@@ -134,7 +134,7 @@ it("cancels the older page on navigation and can retry it after returning", asyn
   const signal = pending.signal();
   expect(signal?.aborted).toBe(false);
 
-  fireEvent.click(screen.getByRole("button", { name: `View order.confirmed, event ${id(40).slice(0, 8)}` }));
+  fireEvent.click(screen.getByRole("button", { name: new RegExp(`…${id(40).slice(0, 8)}$`) }));
   expect(signal?.aborted).toBe(true);
   await pending.finish();
   fireEvent.click(screen.getByRole("button", { name: /Back to events/ }));
@@ -214,7 +214,7 @@ async function openPayload(payload: string) {
   await drain();
   fireEvent.click(
     screen.getByRole("button", {
-      name: "View order.confirmed, event 00000001",
+      name: /…00000001$/,
     }),
   );
   await drain();

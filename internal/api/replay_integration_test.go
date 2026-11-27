@@ -57,21 +57,23 @@ func TestReplayHTTPPostgreSQLLostResponseAndTenantScope(t *testing.T) {
 		t.Fatal(e)
 	}
 	handler := NewHandler(settings, store.NewAPIReadRepository(db.Pool))
-	newRequest := func(key string) *httptest.ResponseRecorder {
+	newRequest := func(key, expectedCycle string) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
 		r := replayRequest("{}", key)
+		r.Header.Set("Replay-Expected-Cycle", expectedCycle)
 		r.URL.Path = "/v1/deliveries/" + id + "/replay"
 		handler.ServeHTTP(w, r)
 		return w
 	}
 	lost := &disconnectedEventResponse{header: make(map[string][]string)}
 	r := replayRequest("{}", "same-literal-key")
+	r.Header.Set("Replay-Expected-Cycle", "1")
 	r.URL.Path = "/v1/deliveries/" + id + "/replay"
 	handler.ServeHTTP(lost, r)
 	if lost.status != 202 {
 		t.Fatal(lost.status)
 	}
-	duplicate := newRequest("same-literal-key")
+	duplicate := newRequest("same-literal-key", "1")
 	if duplicate.Code != 200 {
 		t.Fatal(duplicate.Code, duplicate.Body.String())
 	}
@@ -82,23 +84,40 @@ func TestReplayHTTPPostgreSQLLostResponseAndTenantScope(t *testing.T) {
 	if !original.Deduplicated || original.CycleNo != 2 || original.DeliveryID != id {
 		t.Fatal(original)
 	}
-	assertCreateEventError(t, newRequest("new-key"), 409, codeInvalidState)
+	assertCreateEventError(t, newRequest("new-key", "1"), 409, codeInvalidState)
 	cs, e = claims.ClaimDue(ctx, 1)
 	if e != nil || len(cs) != 1 {
 		t.Fatal(e)
 	}
-	assertCreateEventError(t, newRequest("inflight-key"), 409, codeInvalidState)
+	assertCreateEventError(t, newRequest("inflight-key", "2"), 409, codeInvalidState)
+	if _, e = finalizer.Finalize(ctx, cs[0], delivery.SendResult{Outcome: delivery.HTTPFailure, HTTPStatus: &code}); e != nil {
+		t.Fatal(e)
+	}
+	// A stale browser still shows dead cycle 1 after cycle 2 becomes dead.
+	assertCreateEventError(t, newRequest("stale-key", "1"), 409, codeInvalidState)
+	if retry := newRequest("same-literal-key", "1"); retry.Code != 200 || retry.Body.String() != duplicate.Body.String() {
+		t.Fatal("the old replay key must still resolve after cycle 2 becomes dead", retry.Body.String())
+	}
+	fresh := newRequest("stale-key", "2")
+	var next store.ReplayResult
+	if fresh.Code != 202 || json.Unmarshal(fresh.Body.Bytes(), &next) != nil || next.CycleNo != 3 {
+		t.Fatal("current-cycle request should start cycle 3", fresh.Code, fresh.Body.String())
+	}
+	cs, e = claims.ClaimDue(ctx, 1)
+	if e != nil || len(cs) != 1 || cs[0].CycleNo != 3 {
+		t.Fatal(cs, e)
+	}
 	if _, e = finalizer.Finalize(ctx, cs[0], delivery.SendResult{Outcome: delivery.Acknowledged, HTTPStatus: statusPointer(204)}); e != nil {
 		t.Fatal(e)
 	}
-	assertCreateEventError(t, newRequest("success-key"), 409, codeInvalidState)
-	after := newRequest("same-literal-key")
+	assertCreateEventError(t, newRequest("success-key", "3"), 409, codeInvalidState)
+	after := newRequest("same-literal-key", "1")
 	if after.Code != 200 || after.Body.String() != duplicate.Body.String() {
 		t.Fatal("old response changed", after.Body.String())
 	}
 	var actor string
 	var count int
-	if e = db.Pool.QueryRow(ctx, `SELECT actor,(SELECT count(*) FROM replays) FROM replays WHERE id=$1`, original.ReplayID).Scan(&actor, &count); e != nil || actor != "local-operator" || count != 1 {
+	if e = db.Pool.QueryRow(ctx, `SELECT actor,(SELECT count(*) FROM replays) FROM replays WHERE id=$1`, original.ReplayID).Scan(&actor, &count); e != nil || actor != "local-operator" || count != 2 {
 		t.Fatal(actor, count, e)
 	}
 	// A genuine foreign delivery must be indistinguishable from an unknown ID.
@@ -119,11 +138,11 @@ func TestReplayHTTPPostgreSQLLostResponseAndTenantScope(t *testing.T) {
 		t.Fatal(e)
 	}
 
-	foreignReplay, e := store.NewReplayRepository(db.Pool).Replay(ctx, foreignTenant, foreign.DeliveryIDs[0], "same-literal-key", "local-operator")
+	foreignReplay, e := store.NewReplayRepository(db.Pool).Replay(ctx, foreignTenant, foreign.DeliveryIDs[0], "same-literal-key", "local-operator", 0)
 	if e != nil || foreignReplay.Deduplicated || foreignReplay.ReplayID == original.ReplayID {
 		t.Fatal("tenant key namespace", foreignReplay, e)
 	}
-	if own := newRequest("same-literal-key"); own.Code != 200 || own.Body.String() != duplicate.Body.String() {
+	if own := newRequest("same-literal-key", "1"); own.Code != 200 || own.Body.String() != duplicate.Body.String() {
 		t.Fatal("foreign key changed own response")
 	}
 	for _, target := range []string{foreign.DeliveryIDs[0], "00000000-0000-4000-8000-000000000097"} {
